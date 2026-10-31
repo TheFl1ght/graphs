@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desmos High-Performance Engine</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h1 class="sidebar-title">📐 Graphing Calculator</h1>
+        <div class="sidebar-header-actions">
+          <div class="btn-add-container">
+            <button id="add-expr-btn" class="btn-add">
+              <span>+</span> Добавить
+            </button>
+            <div id="add-dropdown-menu" class="add-dropdown-menu">
+              <button class="menu-item" data-action="function">
+                <span class="menu-icon">𝑓</span>
+                <div class="menu-item-text">
+                  <span class="menu-item-title">Выражение / График</span>
+                  <span class="menu-item-desc">y = f(x) или формула</span>
+                </div>
+              </button>
+              <button class="menu-item" data-action="slider">
+                <span class="menu-icon">⚲</span>
+                <div class="menu-item-text">
+                  <span class="menu-item-title">Параметр (Слайдер)</span>
+                  <span class="menu-item-desc">a = 1, k_max = 2.5</span>
+                </div>
+              </button>
+              <button class="menu-item" data-action="table">
+                <span class="menu-icon">▦</span>
+                <div class="menu-item-text">
+                  <span class="menu-item-title">Таблица точек</span>
+                  <span class="menu-item-desc">Координаты (x, y)</span>
+                </div>
+              </button>
+            </div>
+          </div>
+          <button id="btn-toggle-sidebar" class="btn-toggle-sidebar" title="Скрыть меню выражений">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="11 17 6 12 11 7"></polyline>
+              <polyline points="18 17 13 12 18 7"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-scroll-container">
+        <div id="expression-list" class="expression-list"></div>
+        <div id="empty-click-area" class="empty-click-area">
+          <div class="empty-row-placeholder">
+            <div class="empty-gutter-placeholder"></div>
+          </div>
+          <div class="empty-row-placeholder">
+            <div class="empty-gutter-placeholder"></div>
+          </div>
+          <div class="empty-row-placeholder">
+            <div class="empty-gutter-placeholder"></div>
+          </div>
+        </div>
+      </div>
+      <div id="sidebar-resizer" class="sidebar-resizer" title="Потяните для изменения ширины"></div>
+    </div>
+    <div id="canvas-container">
+      <button id="btn-show-sidebar" class="btn-show-sidebar" title="Показать меню выражений">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 17 18 12 13 7"></polyline>
+          <polyline points="6 17 11 12 6 7"></polyline>
+        </svg>
+      </button>
+      <canvas id="graph-canvas"></canvas>
+      <div class="controls-overlay">
+        <button id="zoom-in" class="ctrl-btn" title="Zoom In">+</button>
+        <button id="zoom-out" class="ctrl-btn" title="Zoom Out">−</button>
+        <button id="reset-view" class="ctrl-btn" title="Reset View">⌂</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

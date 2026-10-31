@@ -1,0 +1,105 @@
+export type ASTNode =
+  | NumberLiteralNode
+  | IdentifierNode
+  | UnaryOpNode
+  | BinaryOpNode
+  | FunctionCallNode
+  | VariableDeclNode
+  | FunctionDeclNode
+  | EquationNode
+  | SumNode
+  | ProductNode
+  | DerivativeNode
+  | IntegralNode
+  | InverseNode
+  | FactorialNode;
+
+export interface InverseNode {
+  type: 'Inverse';
+  name: string;
+  argument: ASTNode;
+}
+
+export interface SumNode {
+  type: 'Sum';
+  variable: string;
+  start: ASTNode;
+  end: ASTNode;
+  body: ASTNode;
+}
+
+export interface ProductNode {
+  type: 'Product';
+  variable: string;
+  start: ASTNode;
+  end: ASTNode;
+  body: ASTNode;
+}
+
+export interface DerivativeNode {
+  type: 'Derivative';
+  variable: string;
+  order: ASTNode;
+  body: ASTNode;
+}
+
+export interface FactorialNode {
+  type: 'Factorial';
+  argument: ASTNode;
+}
+
+export interface IntegralNode {
+  type: 'Integral';
+  variable: string;
+  lower: ASTNode;
+  upper: ASTNode;
+  body: ASTNode;
+}
+
+export interface NumberLiteralNode {
+  type: 'NumberLiteral';
+  value: number;
+}
+
+export interface IdentifierNode {
+  type: 'Identifier';
+  name: string;
+}
+
+export interface UnaryOpNode {
+  type: 'UnaryOp';
+  op: '+' | '-';
+  argument: ASTNode;
+}
+
+export interface BinaryOpNode {
+  type: 'BinaryOp';
+  op: '+' | '-' | '*' | '/' | '^';
+  left: ASTNode;
+  right: ASTNode;
+}
+
+export interface FunctionCallNode {
+  type: 'FunctionCall';
+  name: string;
+  args: ASTNode[];
+}
+
+export interface VariableDeclNode {
+  type: 'VariableDecl';
+  name: string;
+  value: ASTNode;
+}
+
+export interface FunctionDeclNode {
+  type: 'FunctionDecl';
+  name: string;
+  params: string[];
+  body: ASTNode;
+}
+
+export interface EquationNode {
+  type: 'Equation';
+  left: ASTNode;
+  right: ASTNode;
+}

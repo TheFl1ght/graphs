@@ -1,0 +1,1749 @@
+@font-face {
+  font-family: 'KaTeX_Size1';
+  src: url('/fonts/KaTeX_Size1-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KaTeX_Size2';
+  src: url('/fonts/KaTeX_Size2-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KaTeX_Size3';
+  src: url('/fonts/KaTeX_Size3-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KaTeX_Size4';
+  src: url('/fonts/KaTeX_Size4-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KaTeX_Main';
+  src: url('/fonts/KaTeX_Main-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KaTeX_Main';
+  src: url('/fonts/KaTeX_Main-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'KaTeX_Math';
+  src: url('/fonts/KaTeX_Math-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'KaTeX_AMS';
+  src: url('/fonts/KaTeX_AMS-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #fdfdfd;
+  color: #1e293b;
+}
+
+#app {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 400px;
+  min-width: 260px;
+  max-width: calc(100vw - 120px);
+  height: 100%;
+  background: #ffffff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  position: relative;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#sidebar.is-resizing {
+  transition: none !important;
+}
+
+#sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  border-right: none !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+#sidebar.collapsed .sidebar-resizer {
+  display: none !important;
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 100;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.is-dragging {
+  background: #64748b;
+}
+
+body.resizing-sidebar {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.sidebar-header {
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  background: #ffffff;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-toggle-sidebar {
+  width: 30px;
+  height: 30px;
+  background: #f3f4f6;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.btn-toggle-sidebar:hover {
+  background: #e5e7eb;
+  color: #111827;
+  border-color: #9ca3af;
+}
+
+.btn-show-sidebar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 34px;
+  height: 34px;
+  background: #ffffff;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 50;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.btn-show-sidebar:hover {
+  background: #f9fafb;
+  color: #111827;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  transform: scale(1.05);
+}
+
+.btn-add-container {
+  position: relative;
+}
+
+.btn-add {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+
+.btn-add:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+/* Dropdown Menu */
+.add-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  width: 230px;
+  display: none;
+  flex-direction: column;
+  padding: 6px;
+  z-index: 100;
+}
+
+.add-dropdown-menu.show {
+  display: flex;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #1e293b;
+  transition: background 0.15s;
+}
+
+.menu-item:hover {
+  background: #f3f4f6;
+}
+
+.menu-item .menu-icon {
+  font-size: 1.1rem;
+  width: 22px;
+  text-align: center;
+  color: #475569;
+}
+
+.menu-item-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.menu-item-desc {
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
+/* Scrollable Sidebar Content Area */
+.sidebar-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Expressions List */
+.expression-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Individual Expression Row - Desmos style */
+.expression-item {
+  display: flex;
+  flex-shrink: 0;
+  min-height: 52px;
+  border-bottom: 1px solid #e5e7eb;
+  position: relative;
+  background: #ffffff;
+  transition: background-color 0.1s;
+}
+
+/* Compact Parameter/Variable Row */
+.expression-item.is-variable {
+  min-height: 60px;
+}
+
+.expression-item.is-variable .item-content {
+  padding: 4px 14px 6px 14px;
+  justify-content: flex-start;
+  gap: 2px;
+}
+
+.expression-item.is-variable .item-gutter {
+  padding-top: 6px;
+}
+
+.expression-item.is-variable math-field {
+  font-size: 1.15rem;
+  padding: 0;
+}
+
+/* Table Item Layout */
+.expression-item.is-table {
+  min-height: auto;
+  align-items: flex-start;
+}
+
+.expression-item.is-table .item-content {
+  padding: 8px 14px 14px 14px;
+  justify-content: flex-start;
+}
+
+.expression-item.is-table .item-gutter {
+  padding-top: 10px;
+}
+
+.table-item-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+  min-width: 0;
+}
+
+.expression-item:hover {
+  background: #fafafa;
+}
+
+.expression-item.focused {
+  background: #ffffff;
+}
+
+.expression-item.focused::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.5px;
+  background: #475569;
+  z-index: 5;
+}
+
+/* Left Gutter: Index Number and Circle Icon */
+.item-gutter {
+  width: 48px;
+  min-width: 48px;
+  background: #f7f7f8;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 8px;
+  gap: 4px;
+  user-select: none;
+}
+
+.item-index {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  line-height: 1;
+}
+
+.color-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.color-circle:hover {
+  transform: scale(1.08);
+}
+
+.color-circle-inner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.1);
+  transition: all 0.15s ease;
+}
+
+.color-circle-inner.is-hidden {
+  background-color: transparent !important;
+}
+
+/* Desmos Style Popover (Color, Line Dash, Visibility) */
+.desmos-style-popover {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  padding: 12px;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+  animation: popoverFadeIn 0.15s ease-out;
+}
+
+@keyframes popoverFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popover-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.colors-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.color-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.color-btn:hover {
+  transform: scale(1.12);
+}
+
+.color-btn.active {
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #475569;
+  transform: scale(1.05);
+}
+
+.add-color-btn {
+  border: 1.5px dashed #9ca3af;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.add-color-btn:hover {
+  border-color: #475569;
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.custom-color-input-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Custom Hex Input Row */
+.custom-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.custom-hex-preview {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.custom-hex-input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.custom-hex-prefix {
+  position: absolute;
+  left: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.custom-hex-input {
+  width: 100%;
+  height: 26px;
+  padding: 2px 6px 2px 20px;
+  font-size: 0.76rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.custom-hex-input:focus {
+  border-color: #475569;
+  box-shadow: 0 0 0 2px rgba(71, 85, 105, 0.2);
+}
+
+.styles-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.style-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  font-size: 0.72rem;
+  transition: all 0.12s;
+}
+
+.style-btn svg {
+  flex-shrink: 0;
+}
+
+.style-btn:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.style-btn.active {
+  background: #f1f5f9;
+  border-color: #475569;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.visibility-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.visibility-toggle-btn:hover {
+  background: #f3f4f6;
+}
+
+.visibility-toggle-btn.is-visible {
+  color: #15803d;
+}
+
+.visibility-toggle-btn.is-hidden {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* Main Content Area */
+.item-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 14px;
+  position: relative;
+  min-width: 0;
+}
+
+.math-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* MathLive MathField styling */
+.math-field-container {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+math-field {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 1.3rem;
+  color: #111827;
+  padding: 4px 0;
+  --primary: #475569;
+  --caret-color: #1e293b;
+  --selection-background-color: #bfdbfe;
+  --selection-color: #1e3a8a;
+  --contains-highlight-background-color: rgba(59, 130, 246, 0.15);
+  --placeholder-color: #9ca3af;
+  --smart-fence-opacity: 0.38;
+  --smart-fence-color: #94a3b8;
+}
+
+.ML__error {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-bottom: none !important;
+}
+
+.ML__selected,
+.ML__placeholder-selected {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+math-field::part(selection) {
+  background: #bfdbfe !important;
+  color: #1e3a8a !important;
+}
+
+math-field::part(virtual-keyboard-toggle),
+math-field::part(menu-toggle) {
+  display: none !important;
+}
+
+math-field::part(content) {
+  background: transparent !important;
+}
+
+math-field:focus,
+math-field:focus-within {
+  outline: none;
+  border: none;
+}
+
+/* Prompt button to add slider for undefined variables */
+.add-slider-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 2px 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  user-select: none;
+}
+
+.btn-add-slider-var {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 0.95rem;
+  font-family: "KaTeX_Math", "KaTeX_Main", "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: background-color 0.15s, border-color 0.15s, transform 0.05s;
+}
+
+.btn-add-slider-var:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.btn-add-slider-var:active {
+  transform: scale(0.96);
+}
+
+/* Computed Evaluation Pill (e.g. "= -1.2") as in Desmos */
+.evaluation-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-end;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.eval-equal {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+}
+
+.eval-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  font-size: 0.95rem;
+  color: #1e293b;
+  letter-spacing: 0.02em;
+}
+
+/* Delete cross button */
+.btn-delete {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.expression-item:hover .btn-delete {
+  color: #9ca3af;
+}
+
+.btn-delete:hover {
+  color: #ef4444 !important;
+  background: #fee2e2;
+}
+
+/* Desmos-style Slider Row */
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 0 0;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.slider-container input[type="range"] {
+  flex: 1;
+  cursor: pointer;
+  accent-color: #475569;
+  height: 4px;
+  margin: 0;
+}
+
+.slider-bound {
+  width: 46px;
+  height: 24px;
+  padding: 0 4px;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  font-size: 0.85rem;
+  text-align: center;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.slider-bound:focus {
+  border-color: #64748b;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #64748b;
+}
+
+.slider-step-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.slider-step-label {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  user-select: none;
+}
+
+/* Error message */
+.error-msg {
+  font-size: 0.75rem;
+  color: #dc2626;
+  padding: 2px 0;
+}
+
+/* Desmos-style Table Widget */
+.desmos-table-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px 0;
+  position: relative;
+  overflow-x: auto;
+}
+
+.desmos-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 100%;
+  table-layout: auto;
+  align-self: flex-start;
+}
+
+/* Header Cells */
+.desmos-table-th {
+  padding: 4px 8px 6px 8px;
+  text-align: center;
+  position: relative;
+  min-width: 90px;
+  background: transparent;
+  border-bottom: 1.5px solid #1e293b;
+  user-select: none;
+  box-sizing: border-box;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-weight: 400 !important;
+  font-style: normal;
+  cursor: text;
+}
+
+.desmos-table-th * {
+  font-weight: 400 !important;
+}
+
+.desmos-table-th.x-header {
+  border-right: 1.5px solid #1e293b;
+}
+
+.desmos-table-th.y-header {
+  border-right: 1px solid #cbd5e1;
+}
+
+.desmos-table-th.phantom-header {
+  border-right: none;
+}
+
+.desmos-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  white-space: nowrap;
+  box-sizing: border-box;
+  font-weight: 400 !important;
+  cursor: text;
+}
+
+.desmos-header-mathfield {
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  border-radius: 4px;
+  font-size: 1.05rem;
+  padding: 2px 4px;
+  width: auto;
+  min-width: 44px;
+  max-width: none;
+  text-align: center;
+  display: inline-block;
+  cursor: text;
+  box-sizing: border-box;
+  color: #0f172a !important;
+  white-space: nowrap;
+  font-weight: 400 !important;
+  --font-weight: 400 !important;
+  --caret-color: #1e293b;
+  --selection-background-color: #bfdbfe !important;
+  --selection-color: #1e3a8a !important;
+  --text-highlight-background-color: rgba(71, 85, 105, 0.15) !important;
+  --highlight-text: #0f172a !important;
+}
+
+.desmos-header-mathfield:focus,
+.desmos-header-mathfield:focus-within {
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+
+.desmos-header-mathfield::part(virtual-keyboard-toggle),
+.desmos-header-mathfield::part(menu-toggle) {
+  display: none !important;
+}
+
+.desmos-point-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 2px;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.desmos-point-icon:hover {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px rgba(71, 85, 105, 0.25);
+}
+
+/* Error Column Toggle Button (Cross with caps) */
+.error-col-toggle-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 2px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.error-col-toggle-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.error-col-toggle-btn.is-active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #2563eb;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.error-col-toggle-btn svg {
+  display: block;
+}
+
+/* Data Cells */
+.desmos-table-td {
+  padding: 0 4px;
+  min-width: 90px;
+  height: 36px;
+  border-bottom: 1px solid #e2e8f0;
+  position: relative;
+  background: transparent;
+  box-sizing: border-box;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.desmos-table-td.x-cell {
+  border-right: 1.5px solid #1e293b;
+}
+
+.desmos-table-td.y-cell {
+  border-right: 1px solid #cbd5e1;
+}
+
+.desmos-table-td.phantom-cell {
+  border-right: none;
+}
+
+.desmos-cell-input {
+  width: 100%;
+  min-width: 80px;
+  max-width: none;
+  height: 34px;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  text-align: center;
+  font-size: 1.15rem;
+  font-family: "KaTeX_Main", "KaTeX_Math", "Times New Roman", Times, serif;
+  color: #0f172a;
+  outline: none;
+  padding: 2px 8px;
+  transition: border-color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desmos-cell-input:focus {
+  border: 2px solid #475569 !important;
+  background: #ffffff;
+}
+
+.desmos-cell-input.is-computed {
+  color: #475569;
+  cursor: default;
+}
+
+.desmos-cell-input.is-computed {
+  color: #475569;
+  cursor: default;
+}
+
+/* Empty area click target below rows - clean lined style */
+.empty-click-area {
+  flex: 1;
+  min-height: 200px;
+  cursor: text;
+  background: #ffffff;
+  position: relative;
+}
+
+/* Fake line grid in empty area like Desmos notebook */
+.empty-row-placeholder {
+  display: flex;
+  height: 54px;
+  border-bottom: 1px solid #f1f3f5;
+  pointer-events: none;
+}
+
+.empty-gutter-placeholder {
+  width: 48px;
+  min-width: 48px;
+  background: #fbfbfb;
+  border-right: 1px solid #f1f3f5;
+}
+
+/* Canvas Container */
+#canvas-container {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  background: #ffffff;
+}
+
+#canvas-container:active {
+  cursor: grabbing;
+}
+
+#graph-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #ffffff;
+}
+
+/* Overlay controls */
+.controls-overlay {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.ctrl-btn {
+  width: 36px;
+  height: 36px;
+  background: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.2rem;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.ctrl-btn:hover {
+  background: #f1f5f9;
+}
+
+/* ==========================================================================
+   Table Approximation Curves & Regressions
+   ========================================================================== */
+.table-regressions-container {
+  width: calc(100% - 24px);
+  margin-top: 10px;
+  margin-left: 24px; /* Left indentation under the table */
+  padding-left: 12px;
+  border-left: 2px solid #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  font-family: "KaTeX_Main", "KaTeX_Math", "Times New Roman", Times, serif;
+  font-weight: normal;
+}
+
+.table-regressions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.table-regressions-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: normal !important;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  color: #475569;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.table-regressions-toggle-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.table-regressions-chevron {
+  display: inline-block;
+  transition: transform 0.2s ease;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.table-regressions-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.table-add-regression-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: normal !important;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.table-add-regression-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.table-regressions-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-regressions-empty {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-style: italic;
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  font-weight: normal;
+  padding: 4px 2px;
+}
+
+.regression-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  font-weight: normal !important;
+}
+
+.regression-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.regression-card-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.regression-color-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: transform 0.15s;
+}
+
+.regression-color-indicator:hover {
+  transform: scale(1.12);
+}
+
+.regression-select {
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 0.88rem;
+  padding: 0 6px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  font-family: "KaTeX_Math", "KaTeX_Main", "Times New Roman", Times, serif !important;
+  font-weight: normal !important;
+}
+
+.regression-select:focus {
+  border-color: #475569;
+}
+
+.regression-select option {
+  font-family: "KaTeX_Math", "KaTeX_Main", "Times New Roman", Times, serif;
+  font-weight: normal;
+}
+
+.regression-col-select {
+  max-width: 90px;
+}
+
+.regression-model-select {
+  max-width: 220px;
+}
+
+.regression-ot-label {
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  font-size: 0.95rem;
+  font-weight: normal !important;
+  color: #475569;
+  user-select: none;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.regression-degree-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.regression-degree-select {
+  width: 44px;
+  text-align: center;
+}
+
+.regression-del-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.regression-del-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.regression-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+}
+
+.regression-custom-mf {
+  flex: 1;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 1rem;
+  min-height: 28px;
+  font-weight: normal !important;
+}
+
+.regression-custom-mf:focus {
+  border-color: #475569;
+}
+
+.regression-card-row2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #f1f5f9;
+  min-height: 24px;
+}
+
+.regression-eq-container {
+  font-family: "KaTeX_Main", "KaTeX_Math", "Times New Roman", Times, serif;
+  font-size: 0.95rem;
+  color: #0f172a;
+  overflow-x: auto;
+  white-space: nowrap;
+  flex: 1;
+  font-weight: normal !important;
+}
+
+.regression-eq-mf {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 0.95rem;
+  font-weight: normal !important;
+  pointer-events: none;
+}
+
+.regression-r2-mf {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 10px;
+  padding: 1px 7px !important;
+  font-size: 0.85rem;
+  font-weight: normal !important;
+  pointer-events: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.inline-latex-mf {
+  display: inline-flex;
+  align-items: center;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  font-size: 0.95rem;
+  font-family: "KaTeX_Main", "KaTeX_Math", serif !important;
+  font-weight: normal !important;
+  pointer-events: none;
+}
+
+.header-count-mf {
+  font-size: 0.85rem;
+  margin-left: 2px;
+}
+
+.regression-error-msg {
+  font-size: 0.82rem;
+  color: #e11d48;
+  background: #fff1f2;
+  border: 1px solid #ffe4e6;
+  border-radius: 4px;
+  padding: 3px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: normal !important;
+}
+
+.regression-card-row3,
+.regression-card-coeffs-row,
+.regression-card-eq-row,
+.regression-card-kminmax-btn-row,
+.regression-card-kminmax-values-row,
+.regression-card-kminmax-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 5px;
+  border-top: 1px dashed #f1f5f9;
+}
+
+.regression-card-eq-row {
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.btn-kminmax {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-family: "KaTeX_Main", "KaTeX_Math", serif !important;
+  font-size: 0.84rem;
+  font-weight: normal !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn-kminmax::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.btn-kminmax * {
+  pointer-events: none !important;
+}
+
+.kminmax-label-math {
+  font-family: "KaTeX_Main", "Times New Roman", serif;
+  font-size: 0.86rem;
+  font-weight: normal;
+  display: inline-flex;
+  align-items: baseline;
+  user-select: none;
+  pointer-events: none;
+}
+
+.kminmax-label-math .math-var {
+  font-family: "KaTeX_Math", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.96rem;
+  margin-right: 1px;
+}
+
+.kminmax-label-math .math-sub {
+  font-family: "KaTeX_Main", "Times New Roman", serif;
+  font-size: 0.70rem;
+  font-style: normal;
+  position: relative;
+  bottom: -0.22em;
+  margin-right: 2px;
+}
+
+.btn-kminmax:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.btn-kminmax.is-active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #2563eb;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.kminmax-dashed-icon {
+  font-family: monospace;
+  letter-spacing: -1px;
+  font-weight: bold;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.regression-params-title {
+  font-family: "KaTeX_Main", "Times New Roman", Times, serif;
+  font-size: 0.84rem;
+  color: #64748b;
+  user-select: none;
+  font-weight: normal !important;
+}
+
+.regression-params-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.regression-param-pill {
+  display: inline-flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.88rem;
+  font-family: "KaTeX_Main", "KaTeX_Math", serif;
+  font-weight: normal !important;
+}
+
+/* Dark mode overrides */
+body.dark-mode .table-regressions-container {
+  border-left-color: #334155;
+}
+
+body.dark-mode .table-regressions-toggle-btn {
+  color: #94a3b8;
+}
+
+body.dark-mode .table-regressions-toggle-btn:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+body.dark-mode .table-add-regression-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
+body.dark-mode .table-add-regression-btn:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .regression-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+body.dark-mode .regression-card:hover {
+  border-color: #475569;
+}
+
+body.dark-mode .regression-select {
+  background: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+body.dark-mode .regression-custom-row {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+body.dark-mode .regression-custom-mf {
+  background: #0f172a;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+body.dark-mode .regression-card-row2 {
+  border-top-color: #1e293b;
+}
+
+body.dark-mode .regression-eq-container {
+  color: #f1f5f9;
+}
+
+body.dark-mode .regression-r2-mf {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #94a3b8;
+}
+
+body.dark-mode .regression-card-row3 {
+  border-top-color: #1e293b;
+}
+
+body.dark-mode .regression-params-title {
+  color: #94a3b8;
+}
+
+body.dark-mode .regression-param-pill {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+body.dark-mode .error-col-toggle-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+
+body.dark-mode .error-col-toggle-btn:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .error-col-toggle-btn.is-active {
+  background: #1e3a5f;
+  border-color: #60a5fa;
+  color: #60a5fa;
+  box-shadow: 0 0 0 1px #60a5fa;
+}
+
+body.dark-mode .btn-kminmax {
+  background: #1e293b;
+  border-color: #475569;
+  color: #94a3b8;
+}
+
+body.dark-mode .btn-kminmax:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .btn-kminmax.is-active {
+  background: #1e3a5f;
+  border-color: #60a5fa;
+  color: #60a5fa;
+  box-shadow: 0 0 0 1px #60a5fa;
+}
+
+body.dark-mode .regression-card-coeffs-row,
+body.dark-mode .regression-card-eq-row,
+body.dark-mode .regression-card-kminmax-btn-row,
+body.dark-mode .regression-card-kminmax-values-row,
+body.dark-mode .regression-card-kminmax-row {
+  border-top-color: #1e293b;
+}
+
+body.dark-mode math-field {
+  color: #f1f5f9;
+  --caret-color: #60a5fa;
+  --selection-background-color: #1e3a5f !important;
+  --selection-color: #93c5fd !important;
+  --contains-highlight-background-color: rgba(59, 130, 246, 0.25) !important;
+  --placeholder-color: #64748b;
+}
+
+body.dark-mode math-field::part(selection) {
+  background: #1e3a5f !important;
+  color: #93c5fd !important;
+}
+
+body.dark-mode .desmos-header-mathfield {
+  color: #f1f5f9 !important;
+  --caret-color: #60a5fa !important;
+  --selection-background-color: #1e3a5f !important;
+  --selection-color: #93c5fd !important;
+}
