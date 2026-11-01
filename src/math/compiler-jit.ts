@@ -250,16 +250,19 @@ export class JITCompiler {
         const bodyJs = JITCompiler.toJsCode(node.body, innerParams);
 
         return `((_lower, _upper) => {
+          if (!Number.isFinite(_lower) || !Number.isFinite(_upper)) return NaN;
           if (_lower === _upper) return 0;
           const _integrand = (${wrt}) => (${bodyJs});
-          const _n = 100;
+          const _n = 120;
           const _h = (_upper - _lower) / _n;
-          let _sum = _integrand(_lower) + _integrand(_upper);
-          for (let _i = 1; _i < _n; _i++) {
-            const _t = _lower + _i * _h;
-            _sum += _integrand(_t) * (_i % 2 === 0 ? 2 : 4);
+          let _sum = 0;
+          for (let _i = 0; _i < _n; _i++) {
+            const _t = _lower + (_i + 0.5) * _h;
+            const _v = _integrand(_t);
+            if (!Number.isFinite(_v)) return NaN;
+            _sum += _v;
           }
-          return _sum * (_h / 3);
+          return _sum * _h;
         })(${lowerJs}, ${upperJs})`;
       }
 
@@ -354,7 +357,17 @@ export class JITCompiler {
         return JITCompiler.hasIdentifier(node.argument, id);
       case 'Sum':
       case 'Product':
+        return (
+          (node.variable === id ? false : JITCompiler.hasIdentifier(node.body, id)) ||
+          JITCompiler.hasIdentifier(node.start, id) ||
+          JITCompiler.hasIdentifier(node.end, id)
+        );
       case 'Integral':
+        return (
+          (node.variable === id ? false : JITCompiler.hasIdentifier(node.body, id)) ||
+          JITCompiler.hasIdentifier(node.lower, id) ||
+          JITCompiler.hasIdentifier(node.upper, id)
+        );
       case 'Derivative':
         return node.variable === id ? false : JITCompiler.hasIdentifier(node.body, id);
       case 'Inverse':

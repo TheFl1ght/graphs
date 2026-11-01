@@ -28,7 +28,10 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\?/g, '');
   s = s.replace(/\\(?:,|:|;|!|quad|qquad)/g, ' ');
 
-  // 0. Handle calculus operations before powers, fractions, and bracket removal
+  // 0. Handle absolute values first: |...|, \left|...\right|, \lvert...\rvert, etc. -> abs(...)
+  s = replaceAbsoluteValues(s);
+
+  // 0.1. Handle calculus operations before powers, fractions, and bracket removal
   s = replaceDerivatives(s);
   s = replaceSummations(s);
   s = replaceProducts(s);
@@ -91,8 +94,8 @@ export function latexToMath(latex: string): string {
   // Auto-convert single letters directly followed by digits: y1 -> y_1, x2 -> x_2, a1 -> a_1
   s = s.replace(/(?<![a-zA-Z\\_])([a-zA-Z])(?:\s*|\\cdot\s*)([0-9]+)(?![a-zA-Z])/g, '$1_$2');
 
-  // Handle domain restrictions in braces at the end if any: {y_1 - d_y \le y ...}
-  s = s.replace(/\{[^{}]*(?:\\le|<=|\\ge|>=)[^{}]*\}/g, '');
+  // Handle domain restrictions in braces at the end if any: {y_1 - d_y \le y ...}, { |x| \le \frac{\pi}{2} }
+  s = stripTrailingDomainRestriction(s);
 
   // Handle \sqrt[n]{x} and \sqrt{x}
   s = replaceSquareRoots(s);
@@ -664,147 +667,258 @@ function replaceTrigAndLogPowers(str: string): string {
   return res;
 }
 
+function replaceAbsoluteValues(str: string): string {
+  // Normalize MathLive and LaTeX absolute value delimiters
+  let s = str;
+  s = s.replace(/\\left\s*\\lvert/g, ' [OPEN_ABS] ');
+  s = s.replace(/\\right\s*\\rvert/g, ' [CLOSE_ABS] ');
+  s = s.replace(/\\left\s*\|/g, ' [OPEN_ABS] ');
+  s = s.replace(/\\right\s*\|/g, ' [CLOSE_ABS] ');
+  s = s.replace(/\\left\s*\\vert/g, ' [OPEN_ABS] ');
+  s = s.replace(/\\right\s*\\vert/g, ' [CLOSE_ABS] ');
+  s = s.replace(/\\lvert/g, ' [OPEN_ABS] ');
+  s = s.replace(/\\rvert/g, ' [CLOSE_ABS] ');
+
+  // Scan and pair bare '|' and '\vert'
+  let result = '';
+  let absDepth = 0;
+  let i = 0;
+
+  while (i < s.length) {
+    if (s.slice(i).startsWith('[OPEN_ABS]')) {
+      result += 'abs(';
+      absDepth++;
+      i += 10;
+      continue;
+    }
+    if (s.slice(i).startsWith('[CLOSE_ABS]')) {
+      result += ')';
+      if (absDepth > 0) absDepth--;
+      i += 11;
+      continue;
+    }
+
+    const isBarePipe = s[i] === '|';
+    const isSlashVert = s.slice(i).startsWith('\\vert');
+
+    if (isBarePipe || isSlashVert) {
+      const skipLen = isBarePipe ? 1 : 5;
+      const prevTrimmed = result.trimEnd();
+      const lastChar = prevTrimmed.length > 0 ? prevTrimmed[prevTrimmed.length - 1] : '';
+
+      const isPrecededByOp = prevTrimmed.length === 0 ||
+        /[(\[{,=+\-*/^<>]/.test(lastChar) ||
+        prevTrimmed.endsWith('\\le') ||
+        prevTrimmed.endsWith('\\ge') ||
+        prevTrimmed.endsWith('\\cdot') ||
+        prevTrimmed.endsWith('abs(');
+
+      if (isPrecededByOp || absDepth === 0) {
+        result += 'abs(';
+        absDepth++;
+      } else {
+        result += ')';
+        absDepth--;
+      }
+      i += skipLen;
+    } else {
+      result += s[i];
+      i++;
+    }
+  }
+
+  while (absDepth > 0) {
+    result += ')';
+    absDepth--;
+  }
+
+  return result;
+}
+
+function extractLimit(str: string, pos: number): { limit: string; nextPos: number } | null {
+  let i = pos;
+  while (i < str.length && /\s/.test(str[i])) i++;
+  if (i >= str.length) return null;
+
+  if (str[i] === '{') {
+    let depth = 0;
+    const start = i + 1;
+    while (i < str.length) {
+      if (str[i] === '{') depth++;
+      else if (str[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          return { limit: str.substring(start, i), nextPos: i + 1 };
+        }
+      }
+      i++;
+    }
+    return { limit: str.substring(start), nextPos: str.length };
+  }
+
+  // Backslashed command or Greek letter with optional subscript: \alpha, \alpha_0, \alpha_{0}, \pi, \infty
+  if (str[i] === '\\') {
+    const cmdMatch = str.slice(i).match(/^\\([a-zA-Z]+)(?:_\{([^}]*)\}|_([a-zA-Z0-9]))?/);
+    if (cmdMatch) {
+      return { limit: cmdMatch[0], nextPos: i + cmdMatch[0].length };
+    }
+  }
+
+  // Identifier or number: x, 0, 1.2, alpha_0
+  const idMatch = str.slice(i).match(/^[a-zA-Z0-9_.]+/);
+  if (idMatch) {
+    return { limit: idMatch[0], nextPos: i + idMatch[0].length };
+  }
+
+  return { limit: str[i], nextPos: i + 1 };
+}
+
+function stripTrailingDomainRestriction(str: string): string {
+  let s = str.trimEnd();
+  if (!s.endsWith('}') && !s.endsWith('\\}')) {
+    return s;
+  }
+
+  let depth = 0;
+  let i = s.length - 1;
+  while (i >= 0) {
+    if (s[i] === '}') {
+      depth++;
+    } else if (s[i] === '{') {
+      depth--;
+      if (depth === 0) {
+        let braceStart = i;
+        if (braceStart > 0 && s[braceStart - 1] === '\\') {
+          braceStart--;
+        }
+        const inner = s.substring(i + 1, s.length - (s.endsWith('\\}') ? 2 : 1)).trim();
+        if (/\\le|\\ge|<=|>=|<|>/.test(inner)) {
+          return s.substring(0, braceStart).trim();
+        }
+        break;
+      }
+    }
+    i--;
+  }
+
+  return s;
+}
+
 function extractDifferential(rest: string): { wrt: string; rawBody: string; diffEnd: number; hasDiff: boolean } {
-  // Check if integral starts with a fraction containing the differential in numerator: e.g. \frac{d\phi}{...} or \frac{dx}{...}
-  const fracMatch = rest.match(/^\s*\\frac\s*\{([^}]*)\}\s*\{/);
-  if (fracMatch) {
-    const num = fracMatch[1].trim();
-    // Check if numerator matches a differential: d\phi, dphi, d\varphi, dx, dt, etc.
-    const numDiffRegex = /^(?:\\differentialD|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*\}|d)\s*(?:\\?([a-zA-Z]+))$/;
-    const ndm = num.match(numDiffRegex);
-    if (ndm) {
-      let wrt = ndm[1];
-      if (wrt === 'varphi') wrt = 'phi';
-      // Find where the fraction ends
-      const afterFrac = rest.indexOf('\\frac') + 5;
-      const numGroup = extractGroup(rest, afterFrac);
-      if (numGroup) {
-        const denGroup = extractGroup(rest, numGroup.endIndex);
+  // 1. Check if integral starts with a fraction containing the differential in numerator: e.g. \frac{d\phi}{...} or \frac{dx}{...}
+  const trimmed = rest.trimStart();
+  const leadingSpaces = rest.length - trimmed.length;
+  if (trimmed.startsWith('\\frac')) {
+    const numGroup = extractGroup(trimmed, 5);
+    if (numGroup) {
+      const num = numGroup.content.trim();
+      const numDiffRegex = /^(?:\\differentialD|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*\}|d)\s*(?:\\?([a-zA-Z]+))$/;
+      const ndm = num.match(numDiffRegex);
+      if (ndm) {
+        let wrt = ndm[1];
+        if (wrt === 'varphi') wrt = 'phi';
+        const denGroup = extractGroup(trimmed, numGroup.endIndex);
         if (denGroup) {
-          // Replace \frac{dphi}{den} with (1 / (den)) in rawBody
           const rawBody = `\\frac{1}{${denGroup.content}}`;
-          const diffEnd = denGroup.endIndex;
+          const diffEnd = leadingSpaces + denGroup.endIndex;
           return { wrt, rawBody, diffEnd, hasDiff: true };
         }
       }
     }
   }
 
-  // Matches differential at the end or within the rest string
-  // Supports \differentialD x, \mathrm{d}x, \mathrm{dx}, \operatorname{d}x, \operatorname{dx}, \cdot dx, * dx, dx, dt, dy, du, d\phi, d\varphi, dphi, etc.
-  const diffRegex = /(?:\\cdot|\*|\\,|\s)*(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|\bd|(?<=[a-zA-Z0-9_)\}\]])\s*d)\s*(?:\\?([a-zA-Z]+))?(?![a-zA-Z0-9_])/;
-  const match = rest.match(diffRegex);
+  // 2. Check differential at the end: ... dt, ... dx, ... d\phi, ... d\varphi
+  const endDiffRegex = /(?:\\cdot|\*|\\times|\\,|\s)+(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|\bd|(?<=[a-zA-Z0-9_)\}\]])\s*d)\s*(?:\\?([a-zA-Z]+))(?:\s*)$/;
+  const matchEnd = rest.match(endDiffRegex);
+  if (matchEnd) {
+    let wrt = matchEnd[1] || matchEnd[2] || matchEnd[3] || 'x';
+    if (wrt === 'varphi') wrt = 'phi';
+    const diffStart = matchEnd.index!;
+    const rawBody = rest.slice(0, diffStart).trim();
+    return { wrt, rawBody, diffEnd: rest.length, hasDiff: true };
+  }
 
+  // 3. Fallback: matches differential anywhere within rest
+  const anywhereRegex = /(?:\\cdot|\*|\\times|\\,|\s)*(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|\bd|(?<=[a-zA-Z0-9_)\}\]])\s*d)\s*(?:\\?([a-zA-Z]+))(?![a-zA-Z0-9_])/;
+  const match = rest.match(anywhereRegex);
   if (match) {
     let wrt = match[1] || match[2] || match[3] || 'x';
     if (wrt === 'varphi') wrt = 'phi';
     const diffStart = match.index!;
     const diffEnd = diffStart + match[0].length;
-    const rawBody = rest.slice(0, diffStart).replace(/(?:\\cdot|\*|\\,|\s)+$/, '').trim();
-    return { wrt, rawBody, diffEnd, hasDiff: true };
+    const rawBody = (rest.slice(0, diffStart) + rest.slice(diffEnd)).replace(/(?:\\cdot|\*|\\,|\s)+$/, '').trim();
+    return { wrt, rawBody, diffEnd: rest.length, hasDiff: true };
   }
 
   return { wrt: 'x', rawBody: rest.trim(), diffEnd: rest.length, hasDiff: false };
 }
 
 function replaceIntegrals(str: string): string {
-  // Strip MathLive placeholders first
   let res = str.replace(/\\placeholder(?:\{[^{}]*\})?/g, '');
 
-  // 1. Matches \int_{lower}^{upper}, \int_lower^upper, \int^{upper}_{lower}, including empty limits \int_{}^{}
-  const intWithLimitsRegex = /\\int(?:_\{([^}]*)\}|_([a-zA-Z0-9]))(?:\^\{([^}]*)\}|\^([a-zA-Z0-9]))|\\int(?:\^\{([^}]*)\}|\^([a-zA-Z0-9]))(?:_\{([^}]*)\}|_([a-zA-Z0-9]))/g;
+  let safety = 0;
+  while (safety++ < 50) {
+    const intMatch = res.match(/(?<![a-zA-Z\\])\\int(?![a-zA-Z])/);
+    if (!intMatch) break;
 
-  let match: RegExpExecArray | null;
-  while ((match = intWithLimitsRegex.exec(res)) !== null) {
-    const isFlipped = match[0].startsWith('\\int^');
-    const lowerRaw = isFlipped ? (match[7] || match[8]) : (match[1] || match[2]);
-    const upperRaw = isFlipped ? (match[5] || match[6]) : (match[3] || match[4]);
+    const intIdx = intMatch.index!;
+    let pos = intIdx + intMatch[0].length;
 
-    const lower = (lowerRaw || '').trim() || '0';
-    const upper = (upperRaw || '').trim() || '1';
+    while (pos < res.length && /\s/.test(res[pos])) pos++;
 
-    const startIndex = match.index;
-    const afterIndex = startIndex + match[0].length;
-    const rest = res.slice(afterIndex);
+    let lower = '0';
+    let upper = '1';
+    let hasLower = false;
+    let hasUpper = false;
 
+    for (let loop = 0; loop < 2; loop++) {
+      while (pos < res.length && /\s/.test(res[pos])) pos++;
+      if (pos >= res.length) break;
+
+      if (res[pos] === '_') {
+        pos++;
+        const lim = extractLimit(res, pos);
+        if (lim) {
+          lower = lim.limit;
+          pos = lim.nextPos;
+          hasLower = true;
+        }
+      } else if (res[pos] === '^') {
+        pos++;
+        const lim = extractLimit(res, pos);
+        if (lim) {
+          upper = lim.limit;
+          pos = lim.nextPos;
+          hasUpper = true;
+        }
+      } else {
+        break;
+      }
+    }
+
+    if (!hasLower && !hasUpper) {
+      // Indefinite integral defaults
+      lower = '0';
+      upper = 'x';
+    } else if (hasLower && !hasUpper) {
+      upper = '1';
+    } else if (!hasLower && hasUpper) {
+      lower = '0';
+    }
+
+    const rest = res.slice(pos);
     const { wrt, rawBody, diffEnd, hasDiff } = extractDifferential(rest);
     if (!hasDiff) {
       throw new Error('Укажите переменную интегрирования (например, dx)');
     }
 
-    const replacement = `integral(${wrt}, ${latexToMath(lower)}, ${latexToMath(upper)}, ${latexToMath(rawBody || '1')})`;
-    const endIndex = afterIndex + diffEnd;
-    res = res.slice(0, startIndex) + replacement + res.slice(endIndex);
-    intWithLimitsRegex.lastIndex = startIndex + replacement.length;
+    const replacement = `integral(${wrt}, ${latexToMath(lower.trim() || '0')}, ${latexToMath(upper.trim() || '1')}, ${latexToMath(rawBody.trim() || '1')})`;
+    const endIndex = pos + diffEnd;
+    res = res.slice(0, intIdx) + replacement + res.slice(endIndex);
   }
 
-  // 1.5. Matches single lower limit: \int_{lower} or \int_lower (e.g. while user is typing under the integral)
-  const intLowerOnlyRegex = /\\int(?:_\{([^}]*)\}|_([a-zA-Z0-9]))(?!\^)/g;
-  let lowerMatch: RegExpExecArray | null;
-  while ((lowerMatch = intLowerOnlyRegex.exec(res)) !== null) {
-    const lowerRaw = lowerMatch[1] || lowerMatch[2];
-    const lower = (lowerRaw || '').trim() || '0';
-    const upper = '1';
-
-    const startIndex = lowerMatch.index;
-    const afterIndex = startIndex + lowerMatch[0].length;
-    const rest = res.slice(afterIndex);
-
-    const { wrt, rawBody, diffEnd, hasDiff } = extractDifferential(rest);
-    if (!hasDiff) {
-      throw new Error('Укажите переменную интегрирования (например, dx)');
-    }
-
-    const replacement = `integral(${wrt}, ${latexToMath(lower)}, ${latexToMath(upper)}, ${latexToMath(rawBody || '1')})`;
-    const endIndex = afterIndex + diffEnd;
-    res = res.slice(0, startIndex) + replacement + res.slice(endIndex);
-    intLowerOnlyRegex.lastIndex = startIndex + replacement.length;
-  }
-
-  // 1.6. Matches single upper limit: \int^{upper} or \int^upper
-  const intUpperOnlyRegex = /\\int(?:\^\{([^}]*)\}|\^([a-zA-Z0-9]))(?!_)/g;
-  let upperMatch: RegExpExecArray | null;
-  while ((upperMatch = intUpperOnlyRegex.exec(res)) !== null) {
-    const upperRaw = upperMatch[1] || upperMatch[2];
-    const lower = '0';
-    const upper = (upperRaw || '').trim() || '1';
-
-    const startIndex = upperMatch.index;
-    const afterIndex = startIndex + upperMatch[0].length;
-    const rest = res.slice(afterIndex);
-
-    const { wrt, rawBody, diffEnd, hasDiff } = extractDifferential(rest);
-    if (!hasDiff) {
-      throw new Error('Укажите переменную интегрирования (например, dx)');
-    }
-
-    const replacement = `integral(${wrt}, ${latexToMath(lower)}, ${latexToMath(upper)}, ${latexToMath(rawBody || '1')})`;
-    const endIndex = afterIndex + diffEnd;
-    res = res.slice(0, startIndex) + replacement + res.slice(endIndex);
-    intUpperOnlyRegex.lastIndex = startIndex + replacement.length;
-  }
-
-  // 2. Also support indefinite integrals: \int f(x) dx -> integral(x, 0, x, f(x)), \int f(t) dt -> integral(t, 0, x, f(t))
-  const indefRegex = /\\int\b(?![_^])/g;
-  let indefMatch: RegExpExecArray | null;
-  while ((indefMatch = indefRegex.exec(res)) !== null) {
-    const startIndex = indefMatch.index;
-    const afterIndex = startIndex + indefMatch[0].length;
-    const rest = res.slice(afterIndex);
-
-    const { wrt, rawBody, diffEnd, hasDiff } = extractDifferential(rest);
-    if (!hasDiff) {
-      throw new Error('Укажите переменную интегрирования (например, dx)');
-    }
-
-    const replacement = `integral(${wrt}, 0, x, ${latexToMath(rawBody || '1')})`;
-    const endIndex = afterIndex + diffEnd;
-    res = res.slice(0, startIndex) + replacement + res.slice(endIndex);
-    indefRegex.lastIndex = startIndex + replacement.length;
-  }
-
-  // 3. Clean up any leftover bare \int without throwing
-  if (/\\int\b/.test(res)) {
+  // Clean up any leftover bare \int without throwing
+  if (/\\int(?![a-zA-Z])/.test(res)) {
     throw new Error('Укажите переменную интегрирования (например, dx)');
   }
 
