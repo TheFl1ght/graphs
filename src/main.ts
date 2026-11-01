@@ -8,6 +8,27 @@ import { ExpressionManager, ExpressionEntry, HistorySnapshot, TableRegression, f
 import { RegressionType, formatNum } from './math/regression';
 import { Lexer } from './math/lexer';
 
+const GREEK_SHORTCUTS = [
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon',
+  'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa',
+  'lambda', 'mu', 'nu', 'xi', 'pi', 'rho', 'sigma',
+  'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega',
+  'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma',
+  'Upsilon', 'Phi', 'Psi', 'Omega'
+];
+
+function setupGreekShortcuts(dict: any) {
+  if (!dict || typeof dict !== 'object') return;
+  for (const g of GREEK_SHORTCUTS) {
+    const target = g === 'phi' ? '\\varphi' : `\\${g}`;
+    dict[g] = target;
+    for (let d = 0; d <= 9; d++) {
+      dict[`${g}${d}`] = `${target}_{${d}}`;
+      dict[`${g}_${d}`] = `${target}_{${d}}`;
+    }
+  }
+}
+
 function purgeLtGtShortcuts(mf: any) {
   try {
     const rawShortcuts = mf._mathfield?.options?.inlineShortcuts;
@@ -16,7 +37,7 @@ function purgeLtGtShortcuts(mf: any) {
       delete rawShortcuts['lt='];
       delete rawShortcuts['gt'];
       delete rawShortcuts['gt='];
-      rawShortcuts['phi'] = '\\varphi';
+      setupGreekShortcuts(rawShortcuts);
     }
   } catch (_) {}
   try {
@@ -26,7 +47,7 @@ function purgeLtGtShortcuts(mf: any) {
       delete sc['lt='];
       delete sc['gt'];
       delete sc['gt='];
-      sc['phi'] = '\\varphi';
+      setupGreekShortcuts(sc);
       mf.inlineShortcuts = sc;
     }
   } catch (_) {}
@@ -134,19 +155,30 @@ function upgradeMathFunctions(latex: string): string {
   res = res.replace(/\b(?:c\s+o\s+t)\b/g, '\\cot');
   res = res.replace(/\b(?:l\s+n)\b/g, '\\ln');
 
-  // Convert Greek letters typed directly followed by digits to subscripts: alpha0 -> \alpha_{0}, \alpha0 -> \alpha_{0}, phi1 -> \varphi_{1}
+  // Convert Greek letters followed by underscore and digits/identifier: omega_0 -> \omega_{0}, alpha_0 -> \alpha_{0}
   const greekNames = 'alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|varkappa|lambda|mu|nu|xi|pi|varpi|rho|varrho|sigma|varsigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega';
+  const greekSubRegex = new RegExp(`(?<![a-zA-Z])\\\\?(${greekNames})_\\{?([a-zA-Z0-9]+)\\}?`, 'g');
+  res = res.replace(greekSubRegex, (_m, g, sub) => {
+    const latexG = g === 'phi' ? 'varphi' : g;
+    return `\\${latexG}_{${sub}}`;
+  });
+
+  // Convert Greek letters typed directly followed by digits to subscripts: alpha0 -> \alpha_{0}, omega0 -> \omega_{0}
   const greekDigitsRegex = new RegExp(`(?<![a-zA-Z])\\\\?(${greekNames})\\s*([0-9]+)(?![a-zA-Z])`, 'g');
   res = res.replace(greekDigitsRegex, (_m, g, num) => {
     const latexG = g === 'phi' ? 'varphi' : g;
     return `\\${latexG}_{${num}}`;
   });
 
+  // Convert standalone unslashed Greek letters to proper LaTeX commands: omega -> \omega, alpha -> \alpha, phi -> \varphi
+  const greekStandaloneRegex = new RegExp(`(?<![a-zA-Z\\\\_])(${greekNames})(?![a-zA-Z])`, 'g');
+  res = res.replace(greekStandaloneRegex, (_m, g) => {
+    const latexG = g === 'phi' ? 'varphi' : g;
+    return `\\${latexG}`;
+  });
+
   // Convert plain \phi to \varphi in display if user typed \phi
   res = res.replace(/\\phi\b(?![a-zA-Z])/g, '\\varphi');
-
-  // Convert plain unslashed phi (when followed by non-alpha) to \varphi
-  res = res.replace(/(?<![a-zA-Z\\_])phi(?![a-zA-Z])/g, '\\varphi');
 
   // 4. Auto-convert single letters followed directly by digits to subscripts: y1 -> y_{1}, x2 -> x_{2}, a1 -> a_{1}
   // Matches y1, x2, 2x1, e^{y2}, \ln y1 without matching multi-letter functions like ln, log, sin
@@ -2791,52 +2823,56 @@ class App {
         const btn = document.createElement('button');
         btn.className = 'btn-add-slider-var';
 
-        // Render Greek letters or subscripts with pretty LaTeX: \alpha, \beta, x_1
+        // Render Greek letters or subscripts with pretty uniform styling: \alpha -> α, \omega_0 -> ω₀, x_1 -> x₁
+        const GREEK_UNICODE: Record<string, string> = {
+          alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε',
+          zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
+          varkappa: 'ϰ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π',
+          varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ',
+          upsilon: 'υ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+          Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π',
+          Sigma: 'Σ', Upsilon: 'Υ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω'
+        };
+
         const isGreek = Lexer.GREEK_LETTERS.includes(varName) || Lexer.GREEK_LETTERS.some(g => varName.startsWith(g + '_'));
         const hasSubscript = varName.includes('_');
 
-        if (isGreek || hasSubscript) {
-          let latexName = varName;
-          if (isGreek) {
-            // e.g. alpha -> \alpha, alpha_1 -> \alpha_{1}
-            for (const g of Lexer.GREEK_LETTERS) {
-              if (varName === g) {
-                latexName = `\\${g}`;
-                break;
-              } else if (varName.startsWith(g + '_')) {
-                const sub = varName.slice(g.length + 1);
-                latexName = `\\${g}_{${sub}}`;
-                break;
-              }
+        let labelHtml = varName;
+        if (isGreek) {
+          for (const g of Lexer.GREEK_LETTERS) {
+            if (varName === g) {
+              labelHtml = GREEK_UNICODE[g] || g;
+              break;
+            } else if (varName.startsWith(g + '_')) {
+              const sym = GREEK_UNICODE[g] || g;
+              const sub = varName.slice(g.length + 1);
+              labelHtml = `${sym}<sub>${sub}</sub>`;
+              break;
             }
-          } else if (hasSubscript) {
-            const parts = varName.split('_');
-            latexName = `${parts[0]}_{${parts.slice(1).join('_')}}`;
           }
-          const mfVar = document.createElement('math-field') as any;
-          mfVar.readOnly = true;
-          mfVar.className = 'inline-latex-mf';
-          mfVar.setValue(latexName);
-          btn.appendChild(mfVar);
-        } else {
-          btn.textContent = varName;
+        } else if (hasSubscript) {
+          const parts = varName.split('_');
+          labelHtml = `${parts[0]}<sub>${parts.slice(1).join('_')}</sub>`;
         }
+
+        btn.innerHTML = labelHtml;
 
         btn.title = `Создать параметр ${varName}`;
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           // Insert variable slider right below this expression
-          const currIdx = this.exprManager.entries.findIndex(e => e.id === entry.id);
-          const isGreek = Lexer.GREEK_LETTERS.includes(varName) || Lexer.GREEK_LETTERS.some(g => varName.startsWith(g + '_'));
+          const currIdx = this.exprManager.entries.findIndex(entryItem => entryItem.id === entry.id);
+          const isGreekVar = Lexer.GREEK_LETTERS.includes(varName) || Lexer.GREEK_LETTERS.some(g => varName.startsWith(g + '_'));
           let rawDecl = `${varName} = 1`;
-          if (isGreek) {
+          if (isGreekVar) {
             for (const g of Lexer.GREEK_LETTERS) {
+              const latexG = g === 'phi' ? 'varphi' : g;
               if (varName === g) {
-                rawDecl = `\\${g} = 1`;
+                rawDecl = `\\${latexG} = 1`;
                 break;
               } else if (varName.startsWith(g + '_')) {
                 const sub = varName.slice(g.length + 1);
-                rawDecl = `\\${g}_{${sub}} = 1`;
+                rawDecl = `\\${latexG}_{${sub}} = 1`;
                 break;
               }
             }
