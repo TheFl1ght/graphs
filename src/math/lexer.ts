@@ -132,7 +132,8 @@ export class Lexer {
     'log10', 'log2', 'log', 'exp', 'abs', 'sgn', 'sign',
     'floor', 'ceil', 'round', 'min', 'max',
     'ln',
-    'sum', 'prod', 'derivative', 'integral', 'inverse', 'factorial', 'fact'
+    'sum', 'prod', 'derivative', 'integral', 'inverse', 'factorial', 'fact',
+    'matrix', 'det', 'inv', 'transpose', 'dot', 'norm'
   ];
 
   private static readonly KNOWN_CONSTANTS: string[] = ['pi', 'tau', 'phi'];

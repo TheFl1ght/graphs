@@ -1,5 +1,5 @@
 import { Parser } from '../math/parser';
-import { Scope } from '../math/scope';
+import { Scope, isMatrix, is2DVector } from '../math/scope';
 import { JITCompiler, CompiledFunction } from '../math/compiler-jit';
 import { ASTNode } from '../math/ast';
 import { GraphItem, LineStyle } from '../render/graph-renderer';
@@ -97,10 +97,12 @@ export interface ExpressionEntry {
   lineStyle?: LineStyle;
   ast?: ASTNode;
   kind: 'expression' | 'table';
-  type: 'variable' | 'function' | 'graph' | 'evaluation' | 'invalid';
+  type: 'variable' | 'function' | 'graph' | 'evaluation' | 'matrix' | 'vector' | 'invalid';
   varName?: string;
   fnName?: string;
   value?: number;
+  matrixData?: number[][];
+  vector?: { x: number; y: number };
   sliderMin?: number;
   sliderMax?: number;
   sliderStep?: number;
@@ -818,7 +820,17 @@ export class ExpressionManager {
               const compiled = JITCompiler.compile(ast.value, [], this.scope);
               const val = compiled();
               this.scope.setConstant(ast.name, val);
-              entry.value = val;
+              if (typeof val === 'number') {
+                entry.value = val;
+              } else if (isMatrix(val)) {
+                entry.matrixData = val;
+                if (is2DVector(val)) {
+                  entry.vector = { x: val[0][0], y: val[1][0] };
+                  entry.type = 'vector';
+                } else {
+                  entry.type = 'matrix';
+                }
+              }
             } catch {
               // Might depend on other variables, will evaluate in pass 2
               this.scope.setConstant(ast.name, 1);
@@ -867,6 +879,20 @@ export class ExpressionManager {
             if (typeof val === 'number' && Number.isFinite(val)) {
               this.scope.setConstant(ast.name, val);
               entry.value = val;
+              entry.matrixData = undefined;
+              entry.vector = undefined;
+              entry.type = 'variable';
+            } else if (isMatrix(val)) {
+              this.scope.setConstant(ast.name, val);
+              entry.matrixData = val;
+              entry.value = undefined;
+              if (is2DVector(val)) {
+                entry.vector = { x: val[0][0], y: val[1][0] };
+                entry.type = 'vector';
+              } else {
+                entry.vector = undefined;
+                entry.type = 'matrix';
+              }
             }
           }
           this.detectMissingParams(entry, ast.value, new Set());
@@ -888,13 +914,23 @@ export class ExpressionManager {
           entry.compiledFn = compiled;
           this.detectMissingParams(entry, ast, new Set(['x']));
 
-          // Standalone numerical evaluation (e.g. \int_0^1 \cos x dx, 2+2, \sum_{k=1}^5 k)
+          // Standalone numerical evaluation or matrix / vector evaluation
           if ((!entry.missingParams || entry.missingParams.length === 0) && !this.hasFreeVariable(ast, 'x')) {
             try {
               const val = compiled(0);
               if (typeof val === 'number' && Number.isFinite(val)) {
                 entry.value = val;
                 entry.type = 'evaluation';
+              } else if (isMatrix(val)) {
+                entry.matrixData = val;
+                entry.value = undefined;
+                if (is2DVector(val)) {
+                  entry.vector = { x: val[0][0], y: val[1][0] };
+                  entry.type = 'vector';
+                } else {
+                  entry.vector = undefined;
+                  entry.type = 'matrix';
+                }
               } else {
                 entry.value = undefined;
               }
@@ -929,7 +965,8 @@ export class ExpressionManager {
       'sin', 'cos', 'tan', 'cot', 'atan', 'arctan', 'asin', 'acos', 'acot', 'arcsin', 'arccos', 'arccot',
       'sinh', 'cosh', 'tanh', 'sqrt', 'cbrt', 'abs', 'exp',
       'ln', 'log', 'log10', 'log2', 'floor', 'ceil', 'round', 'sign', 'min', 'max',
-      'factorial', 'fact', 'prod', 'sum', 'derivative', 'integral'
+      'factorial', 'fact', 'prod', 'sum', 'derivative', 'integral',
+      'matrix', 'det', 'inv', 'transpose', 'dot', 'norm'
     ]);
 
     const walk = (n: ASTNode) => {
@@ -1139,6 +1176,15 @@ export class ExpressionManager {
             }
           }
         }
+      } else if (entry.type === 'vector' && entry.vector) {
+        items.push({
+          type: 'vector',
+          id: entry.id,
+          color: entry.color,
+          target: entry.vector,
+          label: entry.varName || undefined,
+          visible: entry.visible !== false
+        });
       } else if (entry.compiledFn && (entry.type === 'graph' || entry.type === 'function')) {
         items.push({
           type: 'curve',

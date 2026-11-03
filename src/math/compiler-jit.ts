@@ -1,7 +1,21 @@
 import { ASTNode } from './ast';
-import { Scope } from './scope';
+import {
+  Scope,
+  _createMatrix,
+  _matrixMul,
+  _matrixAdd,
+  _matrixSub,
+  _matrixNeg,
+  _matrixPow,
+  _matrixDiv,
+  _matrixDet,
+  _matrixInv,
+  _matrixTranspose,
+  _matrixDot,
+  _matrixNorm
+} from './scope';
 
-export type CompiledFunction = (...args: number[]) => number;
+export type CompiledFunction = (...args: any[]) => any;
 
 export class JITCompiler {
   /**
@@ -23,8 +37,39 @@ export class JITCompiler {
     
     try {
       // Safe creation using new Function with strictly validated AST symbols
-      const factory = new Function('scope', 'Math', code);
-      const fn = factory(scope, Math) as (...args: number[]) => number;
+      const factory = new Function(
+        'scope',
+        'Math',
+        '_createMatrix',
+        '_matrixMul',
+        '_matrixAdd',
+        '_matrixSub',
+        '_matrixNeg',
+        '_matrixPow',
+        '_matrixDiv',
+        '_matrixDet',
+        '_matrixInv',
+        '_matrixTranspose',
+        '_matrixDot',
+        '_matrixNorm',
+        code
+      );
+      const fn = factory(
+        scope,
+        Math,
+        _createMatrix,
+        _matrixMul,
+        _matrixAdd,
+        _matrixSub,
+        _matrixNeg,
+        _matrixPow,
+        _matrixDiv,
+        _matrixDet,
+        _matrixInv,
+        _matrixTranspose,
+        _matrixDot,
+        _matrixNorm
+      ) as CompiledFunction;
       return fn;
     } catch (err) {
       throw new Error(`Failed to JIT compile expression: ${err}`);
@@ -58,6 +103,9 @@ export class JITCompiler {
 
       case 'UnaryOp': {
         const arg = JITCompiler.toJsCode(node.argument, localParams);
+        if (node.op === '-') {
+          return `_matrixNeg(${arg})`;
+        }
         return `${node.op}(${arg})`;
       }
 
@@ -65,8 +113,20 @@ export class JITCompiler {
         const left = JITCompiler.toJsCode(node.left, localParams);
         const right = JITCompiler.toJsCode(node.right, localParams);
 
+        if (node.op === '*') {
+          return `_matrixMul(${left}, ${right})`;
+        }
+        if (node.op === '+') {
+          return `_matrixAdd(${left}, ${right})`;
+        }
+        if (node.op === '-') {
+          return `_matrixSub(${left}, ${right})`;
+        }
+        if (node.op === '/') {
+          return `_matrixDiv(${left}, ${right})`;
+        }
         if (node.op === '^') {
-          return `Math.pow(${left}, ${right})`;
+          return `_matrixPow(${left}, ${right})`;
         }
         return `(${left} ${node.op} ${right})`;
       }
@@ -78,6 +138,26 @@ export class JITCompiler {
         }
 
         const argsJs = node.args.map(arg => JITCompiler.toJsCode(arg, localParams)).join(', ');
+
+        // Matrix / Linear Algebra functions
+        if (name === 'matrix') {
+          return `_createMatrix(${argsJs})`;
+        }
+        if (name === 'det') {
+          return `_matrixDet(${argsJs})`;
+        }
+        if (name === 'inv') {
+          return `_matrixInv(${argsJs})`;
+        }
+        if (name === 'transpose') {
+          return `_matrixTranspose(${argsJs})`;
+        }
+        if (name === 'dot') {
+          return `_matrixDot(${argsJs})`;
+        }
+        if (name === 'norm') {
+          return `_matrixNorm(${argsJs})`;
+        }
 
         // Built-in standard Math functions
         const mathFns = [

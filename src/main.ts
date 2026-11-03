@@ -27,6 +27,45 @@ function setupGreekShortcuts(dict: any) {
       dict[`${g}_${d}`] = `${target}_{${d}}`;
     }
   }
+  dict['matrix'] = '\\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}';
+  dict['vector'] = '\\begin{bmatrix} 0 \\\\ 0 \\end{bmatrix}';
+}
+
+function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number): string {
+  const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
+  if (!match) return latex;
+
+  const env = match[1];
+  const body = match[2];
+  const prefix = latex.substring(0, match.index);
+  const suffix = latex.substring(match.index! + match[0].length);
+
+  // Parse existing cells
+  const rawRows = body.split(/\\\\|\\cr/);
+  const existing: string[][] = [];
+  for (const r of rawRows) {
+    if (r.trim() === '' && existing.length > 0) continue;
+    existing.push(r.split('&').map(c => c.trim()));
+  }
+
+  const safeRows = Math.max(1, Math.min(8, targetRows));
+  const safeCols = Math.max(1, Math.min(8, targetCols));
+
+  const newRowsArr: string[] = [];
+  for (let r = 0; r < safeRows; r++) {
+    const rowCells: string[] = [];
+    for (let c = 0; c < safeCols; c++) {
+      let val = '0';
+      if (existing[r] && existing[r][c] !== undefined && existing[r][c].trim() !== '') {
+        val = existing[r][c].trim();
+      }
+      rowCells.push(val);
+    }
+    newRowsArr.push(rowCells.join(' & '));
+  }
+
+  const newBody = newRowsArr.join(' \\\\ ');
+  return `${prefix}\\begin{${env}} ${newBody} \\end{${env}}${suffix}`;
 }
 
 function purgeLtGtShortcuts(mf: any) {
@@ -196,6 +235,10 @@ function upgradeMathFunctions(latex: string): string {
   // 5. If operators (+, -, *, /, =) are typed at the end of a subscript, extract them to baseline
   res = res.replace(/([a-zA-Z])_\{([0-9]+)\s*([\+\-\*\/=])\}/g, '$1_{$2}$3');
   res = res.replace(/([a-zA-Z])_\{([0-9]+)\s*\\cdot\s*\}/g, '$1_{$2}\\cdot ');
+
+  // 6. Matrix and Vector auto-upgrade from plain keyword
+  res = res.replace(/(?<![a-zA-Z\\])\b(?:m\s*a\s*t\s*r\s*i\s*x|matrix)\b/gi, '\\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}');
+  res = res.replace(/(?<![a-zA-Z\\])\b(?:v\s*e\s*c\s*t\s*o\s*r|vector)\b/gi, '\\begin{bmatrix} 0 \\\\ 0 \\end{bmatrix}');
 
   // Restore protected blocks
   res = res.replace(/__PROTECTED_BLOCK_(\d+)__/g, (_m, idx) => protectedBlocks[parseInt(idx, 10)]);
@@ -453,7 +496,14 @@ class App {
           handleEmptyClick();
         }
       });
+      scrollContainer.addEventListener('scroll', () => {
+        this.repositionAllMatrixHandles();
+      });
     }
+
+    window.addEventListener('resize', () => {
+      this.repositionAllMatrixHandles();
+    });
 
     this.exprListEl.addEventListener('click', (e) => {
       if (e.target === this.exprListEl) {
@@ -609,6 +659,11 @@ class App {
       entry = this.exprManager.addExpression(`${v} = 2`);
     } else if (action === 'table') {
       entry = this.exprManager.addExpression('', 'table');
+    } else if (action === 'matrix') {
+      const usedVars = new Set(this.exprManager.entries.map(e => e.varName).filter(Boolean));
+      const candidates = ['A', 'B', 'M', 'T', 'v', 'u', 'w'];
+      const v = candidates.find(c => !usedVars.has(c)) || 'A';
+      entry = this.exprManager.addExpression(`${v} = \\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}`);
     } else {
       entry = this.exprManager.addExpression('');
     }
@@ -795,6 +850,7 @@ class App {
       }
 
       this.updateItemExtras(contentEl, entry, mf);
+      this.updateMatrixResizeHandle(mfContainer, mf, entry);
     });
 
     mf.addEventListener('blur', () => {
@@ -1107,6 +1163,188 @@ class App {
     contentEl.appendChild(mathRow);
 
     this.updateItemExtras(contentEl, entry, mf);
+    this.updateMatrixResizeHandle(mfContainer, mf, entry);
+  }
+
+  private updateMatrixResizeHandle(
+    mfContainer: HTMLElement,
+    mf: any,
+    entry: ExpressionEntry
+  ): void {
+    const latex = mf.getValue();
+    const hasMatrix = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}/.test(latex);
+    let handle = mfContainer.querySelector('.matrix-resize-container') as HTMLElement | null;
+
+    if (!hasMatrix) {
+      if (handle) handle.remove();
+      return;
+    }
+
+    const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
+    let currentRows = 2;
+    let currentCols = 2;
+    if (match) {
+      const body = match[2];
+      const rawRows = body.split(/\\\\|\\cr/);
+      const rows: string[][] = [];
+      for (const r of rawRows) {
+        if (r.trim() === '' && rows.length > 0) continue;
+        rows.push(r.split('&').map((c: string) => c.trim()));
+      }
+      currentRows = rows.length || 1;
+      currentCols = 1;
+      for (const r of rows) {
+        if (r.length > currentCols) currentCols = r.length;
+      }
+    }
+
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'matrix-resize-container';
+      handle.innerHTML = `
+        <div class="matrix-resize-dot" title="Потяните для изменения размера матрицы"></div>
+        <div class="matrix-resize-badge">${currentRows} × ${currentCols}</div>
+      `;
+      mfContainer.appendChild(handle);
+      this.setupMatrixDrag(handle, mfContainer, mf, entry);
+    }
+
+    const badge = handle.querySelector('.matrix-resize-badge');
+    if (badge) badge.textContent = `${currentRows} × ${currentCols}`;
+
+    requestAnimationFrame(() => {
+      this.positionMatrixHandle(handle!, mfContainer, mf);
+    });
+  }
+
+  private positionMatrixHandle(handle: HTMLElement, mfContainer: HTMLElement, mf: any): void {
+    const containerRect = mfContainer.getBoundingClientRect();
+    if (containerRect.width === 0 && containerRect.height === 0) return;
+
+    let targetEl: Element | null = null;
+    if (mf.shadowRoot) {
+      const closeDelims = mf.shadowRoot.querySelectorAll('.ML__close');
+      if (closeDelims.length > 0) {
+        targetEl = closeDelims[closeDelims.length - 1];
+      }
+      if (!targetEl) {
+        targetEl = mf.shadowRoot.querySelector('.ML__mtable');
+      }
+    }
+
+    if (targetEl) {
+      const targetRect = targetEl.getBoundingClientRect();
+      const left = targetRect.right - containerRect.left;
+      const top = targetRect.bottom - containerRect.top;
+      handle.style.left = `${left}px`;
+      handle.style.top = `${top}px`;
+      handle.style.display = 'flex';
+    } else {
+      const mfRect = mf.getBoundingClientRect();
+      handle.style.left = `${mfRect.right - containerRect.left - 8}px`;
+      handle.style.top = `${mfRect.bottom - containerRect.top - 2}px`;
+      handle.style.display = 'flex';
+    }
+  }
+
+  private repositionAllMatrixHandles(): void {
+    const handles = document.querySelectorAll('.matrix-resize-container');
+    handles.forEach(handleEl => {
+      const handle = handleEl as HTMLElement;
+      const mfContainer = handle.closest('.math-field-container') as HTMLElement;
+      const mf = mfContainer?.querySelector('math-field') as any;
+      if (handle && mfContainer && mf) {
+        this.positionMatrixHandle(handle, mfContainer, mf);
+      }
+    });
+  }
+
+  private setupMatrixDrag(
+    handle: HTMLElement,
+    mfContainer: HTMLElement,
+    mf: any,
+    entry: ExpressionEntry
+  ): void {
+    const dot = handle.querySelector('.matrix-resize-dot') as HTMLElement;
+    const badge = handle.querySelector('.matrix-resize-badge') as HTMLElement;
+    if (!dot) return;
+
+    dot.addEventListener('pointerdown', (e: PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { dot.setPointerCapture(e.pointerId); } catch (_) {}
+      handle.classList.add('is-dragging');
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+
+      const latex = mf.getValue();
+      const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
+      if (!match) return;
+
+      const body = match[2];
+      const rawRows = body.split(/\\\\|\\cr/);
+      const existingRows: string[][] = [];
+      for (const r of rawRows) {
+        if (r.trim() === '' && existingRows.length > 0) continue;
+        existingRows.push(r.split('&').map((c: string) => c.trim()));
+      }
+      const initialRows = existingRows.length || 1;
+      let initialCols = 1;
+      for (const r of existingRows) {
+        if (r.length > initialCols) initialCols = r.length;
+      }
+
+      let activeRows = initialRows;
+      let activeCols = initialCols;
+
+      const onPointerMove = (moveEv: PointerEvent) => {
+        const dx = moveEv.clientX - startX;
+        const dy = moveEv.clientY - startY;
+
+        const stepX = 28;
+        const stepY = 26;
+
+        const newCols = Math.max(1, Math.min(8, initialCols + Math.round(dx / stepX)));
+        const newRows = Math.max(1, Math.min(8, initialRows + Math.round(dy / stepY)));
+
+        if (badge) badge.textContent = `${newRows} × ${newCols}`;
+
+        if (newRows !== activeRows || newCols !== activeCols) {
+          activeRows = newRows;
+          activeCols = newCols;
+
+          const updatedLatex = resizeMatrixLatex(mf.getValue(), newRows, newCols);
+          mf.setValue(updatedLatex);
+          entry.rawText = updatedLatex;
+          this.exprManager.updateExpression(entry.id, updatedLatex);
+          requestAnimationFrame(() => {
+            this.positionMatrixHandle(handle, mfContainer, mf);
+          });
+        }
+      };
+
+      const onPointerUp = (upEv: PointerEvent) => {
+        try { dot.releasePointerCapture(upEv.pointerId); } catch (_) {}
+        handle.classList.remove('is-dragging');
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+
+        const finalLatex = resizeMatrixLatex(mf.getValue(), activeRows, activeCols);
+        mf.setValue(finalLatex);
+        entry.rawText = finalLatex;
+        this.exprManager.updateExpression(entry.id, finalLatex);
+        this.pushHistory(false);
+        requestAnimationFrame(() => {
+          this.positionMatrixHandle(handle, mfContainer, mf);
+        });
+      };
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+    });
   }
 
   private renderTableItem(
@@ -3050,6 +3288,18 @@ class App {
       contentEl.appendChild(evalPill);
     }
 
+    // 3.1. Desmos Evaluated Pill for standalone matrix/vector evaluations (e.g. A v, A * B, det A)
+    if ((entry.type === 'matrix' || entry.type === 'vector') && entry.matrixData && !entry.varName) {
+      const evalPill = document.createElement('div');
+      evalPill.className = 'evaluation-pill evaluation-matrix-pill';
+      const rows = entry.matrixData.map(r => r.map(v => formatNum(v)).join(' & ')).join(' \\\\ ');
+      evalPill.innerHTML = `
+        <span class="eval-equal">=</span>
+        <span class="eval-box eval-matrix-box"><math-field read-only>\\begin{bmatrix} ${rows} \\end{bmatrix}</math-field></span>
+      `;
+      contentEl.appendChild(evalPill);
+    }
+
     // 4. Error message if invalid (and no missing parameters)
     if (entry.error && (!entry.missingParams || entry.missingParams.length === 0)) {
       const errEl = document.createElement('div');
@@ -3109,7 +3359,7 @@ class App {
   }
 
   private updateCircleAppearance(circleInner: HTMLElement, entry: ExpressionEntry): void {
-    if (entry.type === 'invalid' || entry.type === 'evaluation') {
+    if (entry.type === 'invalid' || entry.type === 'evaluation' || entry.type === 'matrix') {
       circleInner.style.backgroundColor = '#cbd5e1';
       circleInner.style.border = '1.5px solid rgba(0, 0, 0, 0.1)';
       circleInner.style.opacity = '1';

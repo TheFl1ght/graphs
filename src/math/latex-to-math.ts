@@ -28,6 +28,9 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\?/g, '');
   s = s.replace(/\\(?:,|:|;|!|quad|qquad)/g, ' ');
 
+  // -0.1. Handle matrices before brackets and formatting removal
+  s = replaceMatrices(s);
+
   // 0. Handle absolute values first: |...|, \left|...\right|, \lvert...\rvert, etc. -> abs(...)
   s = replaceAbsoluteValues(s);
 
@@ -144,11 +147,11 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\\tg\b/g, 'tan');
 
   // Replace remaining backslashed math functions
-  s = s.replace(/\\(sin|cos|tan|atan|asin|acos|acot|cot|sinh|cosh|tanh|ln|log|exp|abs|min|max|round|floor|ceil|sign)\b/g, '$1');
+  s = s.replace(/\\(sin|cos|tan|atan|asin|acos|acot|cot|sinh|cosh|tanh|ln|log|exp|abs|min|max|round|floor|ceil|sign|matrix|det|inv|transpose|dot|norm)\b/g, '$1');
 
   // Handle function calls without parentheses: sin x -> sin(x), cos x -> cos(x), ln x -> ln(x), cot x -> cot(x)
   // Matches function name followed by space or identifier/number without '('
-  const fnRegex = /\b(sin|cos|tan|cot|atan|asin|acos|acot|arcsin|arccos|arctan|arccot|sinh|cosh|tanh|ln|log|exp|sqrt)\s*([a-zA-Z0-9_]+)(?!\()/g;
+  const fnRegex = /\b(sin|cos|tan|cot|atan|asin|acos|acot|arcsin|arccos|arctan|arccot|sinh|cosh|tanh|ln|log|exp|sqrt|det|inv|transpose|norm)\s*([a-zA-Z0-9_]+)(?!\()/g;
   s = s.replace(fnRegex, '$1($2)');
 
   // Clean superscripts: x^{2+a} -> x^(2+a)
@@ -923,4 +926,45 @@ function replaceIntegrals(str: string): string {
   }
 
   return res;
+}
+
+function replaceMatrices(str: string): string {
+  let s = str;
+  const matrixRegex = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/;
+  let match: RegExpExecArray | null;
+  let safety = 0;
+  while ((match = matrixRegex.exec(s)) !== null && safety++ < 50) {
+    const env = match[1];
+    const body = match[2];
+    // Split rows by \\ or \cr
+    const rowStrings = body.split(/\\\\|\\cr/);
+    const rows: string[][] = [];
+    for (const r of rowStrings) {
+      if (r.trim() === '' && rows.length > 0) continue;
+      const cols = r.split('&').map(c => c.trim());
+      rows.push(cols);
+    }
+    const numRows = rows.length || 1;
+    let maxCols = 0;
+    for (const r of rows) {
+      if (r.length > maxCols) maxCols = r.length;
+    }
+    if (maxCols === 0) maxCols = 1;
+
+    const elements: string[] = [];
+    for (let i = 0; i < numRows; i++) {
+      const r = rows[i] || [];
+      for (let j = 0; j < maxCols; j++) {
+        const cell = (r[j] !== undefined && r[j].trim() !== '') ? r[j].trim() : '0';
+        elements.push(`(${latexToMath(cell)})`);
+      }
+    }
+
+    let matStr = `matrix(${numRows}, ${maxCols}, ${elements.join(', ')})`;
+    if (env === 'vmatrix') {
+      matStr = `det(${matStr})`;
+    }
+    s = s.substring(0, match.index) + matStr + s.substring(match.index + match[0].length);
+  }
+  return s;
 }

@@ -27,7 +27,17 @@ export interface PointsGraphItem {
   visible: boolean;
 }
 
-export type GraphItem = CurveGraphItem | PointsGraphItem;
+export interface VectorGraphItem {
+  type: 'vector';
+  id: string;
+  color: string;
+  origin?: { x: number; y: number };
+  target: { x: number; y: number };
+  label?: string;
+  visible: boolean;
+}
+
+export type GraphItem = CurveGraphItem | PointsGraphItem | VectorGraphItem;
 
 export class GraphRenderer {
   private canvas: HTMLCanvasElement;
@@ -183,6 +193,72 @@ export class GraphRenderer {
           ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
+        }
+      } else if (item.type === 'vector') {
+        const ox = item.origin?.x ?? 0;
+        const oy = item.origin?.y ?? 0;
+        const tx = item.target.x;
+        const ty = item.target.y;
+
+        if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(tx) || !Number.isFinite(ty)) {
+          continue;
+        }
+
+        const p0 = camera.worldToScreen(ox, oy);
+        const p1 = camera.worldToScreen(tx, ty);
+
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const len = Math.hypot(dx, dy);
+
+        ctx.strokeStyle = item.color;
+        ctx.fillStyle = item.color;
+        ctx.lineWidth = 2.75;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([]);
+
+        // Origin anchor dot
+        ctx.beginPath();
+        ctx.arc(p0.x, p0.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (len > 3) {
+          const angle = Math.atan2(dy, dx);
+          const headLen = Math.min(15, Math.max(8, len * 0.3));
+          const headAngle = Math.PI / 7;
+
+          // Shorten line slightly so arrow head tip looks sharp
+          const endShaftX = p1.x - Math.cos(angle) * (headLen * 0.5);
+          const endShaftY = p1.y - Math.sin(angle) * (headLen * 0.5);
+
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(endShaftX, endShaftY);
+          ctx.stroke();
+
+          // Arrowhead
+          const leftX = p1.x - headLen * Math.cos(angle - headAngle);
+          const leftY = p1.y - headLen * Math.sin(angle - headAngle);
+          const rightX = p1.x - headLen * Math.cos(angle + headAngle);
+          const rightY = p1.y - headLen * Math.sin(angle + headAngle);
+
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(leftX, leftY);
+          ctx.lineTo(rightX, rightY);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Draw coordinate / name label if present
+        if (item.label) {
+          ctx.font = '600 12px Inter, system-ui, sans-serif';
+          ctx.fillStyle = item.color;
+          const labelOffset = 12;
+          const textX = p1.x + (dx >= 0 ? labelOffset : -labelOffset - ctx.measureText(item.label).width);
+          const textY = p1.y + (dy <= 0 ? -labelOffset : labelOffset + 10);
+          ctx.fillText(item.label, textX, textY);
         }
       }
     }
