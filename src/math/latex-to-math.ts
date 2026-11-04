@@ -17,6 +17,9 @@ export function latexToMath(latex: string): string {
   let s = latex.trim();
   if (!s) return '';
 
+  // -0.1. Handle matrices before brackets and formatting removal
+  s = replaceMatrices(s);
+
   // Clean phantom / empty placeholders and formatting noise early
   s = s.replace(/\\placeholder\{[^}]*\}/g, '');
   s = s.replace(/\\placeholder/g, '');
@@ -27,9 +30,6 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\{\s*\?\s*\}/g, '');
   s = s.replace(/\?/g, '');
   s = s.replace(/\\(?:,|:|;|!|quad|qquad)/g, ' ');
-
-  // -0.1. Handle matrices before brackets and formatting removal
-  s = replaceMatrices(s);
 
   // 0. Handle absolute values first: |...|, \left|...\right|, \lvert...\rvert, etc. -> abs(...)
   s = replaceAbsoluteValues(s);
@@ -955,7 +955,9 @@ function replaceMatrices(str: string): string {
     for (let i = 0; i < numRows; i++) {
       const r = rows[i] || [];
       for (let j = 0; j < maxCols; j++) {
-        const cell = (r[j] !== undefined && r[j].trim() !== '') ? r[j].trim() : '0';
+        const rawCell = (r[j] !== undefined && r[j].trim() !== '') ? r[j].trim() : '0';
+        const cleaned = rawCell.replace(/\\placeholder\{[^}]*\}/g, '').replace(/\\placeholder/g, '').trim();
+        const cell = cleaned || '0';
         elements.push(`(${latexToMath(cell)})`);
       }
     }

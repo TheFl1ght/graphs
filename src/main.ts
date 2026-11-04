@@ -27,8 +27,8 @@ function setupGreekShortcuts(dict: any) {
       dict[`${g}_${d}`] = `${target}_{${d}}`;
     }
   }
-  dict['matrix'] = '\\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}';
-  dict['vector'] = '\\begin{bmatrix} 0 \\\\ 0 \\end{bmatrix}';
+  dict['matrix'] = '\\begin{bmatrix} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{bmatrix}';
+  dict['vector'] = '\\begin{bmatrix} \\placeholder{} \\\\ \\placeholder{} \\end{bmatrix}';
 }
 
 function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number): string {
@@ -55,7 +55,7 @@ function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number
   for (let r = 0; r < safeRows; r++) {
     const rowCells: string[] = [];
     for (let c = 0; c < safeCols; c++) {
-      let val = '0';
+      let val = '\\placeholder{}';
       if (existing[r] && existing[r][c] !== undefined && existing[r][c].trim() !== '') {
         val = existing[r][c].trim();
       }
@@ -97,6 +97,38 @@ function setupMathField(mf: any) {
   mf.smartFence = true;
   mf.smartSuperscript = true;
   mf.smartMode = false;
+  mf.placeholderSymbol = '0';
+
+  const injectPlaceholderStyle = () => {
+    try {
+      if (mf.shadowRoot && !mf.shadowRoot.querySelector('#mf-matrix-ph-style')) {
+        const style = document.createElement('style');
+        style.id = 'mf-matrix-ph-style';
+        style.textContent = `
+          .ML__placeholder {
+            color: #94a3b8 !important;
+            opacity: 0.65 !important;
+            font-family: KaTeX_Main, 'Times New Roman', serif !important;
+            font-style: normal !important;
+            font-weight: normal !important;
+            padding-left: 2px !important;
+            padding-right: 2px !important;
+          }
+          .ML__placeholder.ML__placeholder-selected {
+            background-color: #bfdbfe !important;
+            opacity: 1 !important;
+            color: #1e3a8a !important;
+          }
+        `;
+        mf.shadowRoot.appendChild(style);
+      }
+    } catch (_) {}
+  };
+
+  injectPlaceholderStyle();
+  mf.addEventListener('mount', injectPlaceholderStyle);
+  requestAnimationFrame(injectPlaceholderStyle);
+  setTimeout(injectPlaceholderStyle, 0);
 
   purgeLtGtShortcuts(mf);
   mf.addEventListener('mount', () => purgeLtGtShortcuts(mf));
@@ -109,6 +141,7 @@ if (typeof window !== 'undefined') {
     try {
       if ((window as any).MathfieldElement) {
         (window as any).MathfieldElement.fontsDirectory = '/fonts/';
+        (window as any).MathfieldElement.placeholderSymbol = '0';
 
         const originalConnected = (window as any).MathfieldElement.prototype.connectedCallback;
         (window as any).MathfieldElement.prototype.connectedCallback = function() {
@@ -237,8 +270,8 @@ function upgradeMathFunctions(latex: string): string {
   res = res.replace(/([a-zA-Z])_\{([0-9]+)\s*\\cdot\s*\}/g, '$1_{$2}\\cdot ');
 
   // 6. Matrix and Vector auto-upgrade from plain keyword
-  res = res.replace(/(?<![a-zA-Z\\])\b(?:m\s*a\s*t\s*r\s*i\s*x|matrix)\b/gi, '\\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}');
-  res = res.replace(/(?<![a-zA-Z\\])\b(?:v\s*e\s*c\s*t\s*o\s*r|vector)\b/gi, '\\begin{bmatrix} 0 \\\\ 0 \\end{bmatrix}');
+  res = res.replace(/(?<![a-zA-Z\\])\b(?:m\s*a\s*t\s*r\s*i\s*x|matrix)\b/gi, '\\begin{bmatrix} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{bmatrix}');
+  res = res.replace(/(?<![a-zA-Z\\])\b(?:v\s*e\s*c\s*t\s*o\s*r|vector)\b/gi, '\\begin{bmatrix} \\placeholder{} \\\\ \\placeholder{} \\end{bmatrix}');
 
   // Restore protected blocks
   res = res.replace(/__PROTECTED_BLOCK_(\d+)__/g, (_m, idx) => protectedBlocks[parseInt(idx, 10)]);
@@ -663,7 +696,7 @@ class App {
       const usedVars = new Set(this.exprManager.entries.map(e => e.varName).filter(Boolean));
       const candidates = ['A', 'B', 'M', 'T', 'v', 'u', 'w'];
       const v = candidates.find(c => !usedVars.has(c)) || 'A';
-      entry = this.exprManager.addExpression(`${v} = \\begin{bmatrix} 0 & 0 \\\\ 0 & 0 \\end{bmatrix}`);
+      entry = this.exprManager.addExpression(`${v} = \\begin{bmatrix} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{bmatrix}`);
     } else {
       entry = this.exprManager.addExpression('');
     }
@@ -1221,27 +1254,38 @@ class App {
     const containerRect = mfContainer.getBoundingClientRect();
     if (containerRect.width === 0 && containerRect.height === 0) return;
 
-    let targetEl: Element | null = null;
-    if (mf.shadowRoot) {
-      const closeDelims = mf.shadowRoot.querySelectorAll('.ML__close');
-      if (closeDelims.length > 0) {
-        targetEl = closeDelims[closeDelims.length - 1];
-      }
-      if (!targetEl) {
-        targetEl = mf.shadowRoot.querySelector('.ML__mtable');
-      }
-    }
+    const mtable = mf.shadowRoot?.querySelector('.ML__mtable') as HTMLElement | null;
+    if (mtable) {
+      const matrixBox = mtable.parentElement as HTMLElement | null;
+      const rightBracket = (mtable.nextElementSibling as HTMLElement | null) ||
+                           (matrixBox?.lastElementChild as HTMLElement | null);
 
-    if (targetEl) {
-      const targetRect = targetEl.getBoundingClientRect();
-      const left = targetRect.right - containerRect.left;
-      const top = targetRect.bottom - containerRect.top;
+      const dRect = rightBracket ? rightBracket.getBoundingClientRect() : null;
+      const mBoxRect = matrixBox ? matrixBox.getBoundingClientRect() : null;
+      const tRect = mtable.getBoundingClientRect();
+
+      // Right edge: rightmost coordinate of the closing bracket or matrix container
+      const targetRight = Math.max(
+        dRect && dRect.width > 0 ? dRect.right : 0,
+        mBoxRect && mBoxRect.width > 0 ? mBoxRect.right : 0,
+        tRect.right + 14
+      );
+
+      // Bottom edge: bottommost coordinate of the bracket
+      const targetBottom = Math.max(
+        dRect && dRect.height > 0 ? dRect.bottom : 0,
+        mBoxRect && mBoxRect.height > 0 ? mBoxRect.bottom : 0,
+        tRect.bottom + 6
+      );
+
+      const left = targetRight - containerRect.left;
+      const top = targetBottom - containerRect.top;
       handle.style.left = `${left}px`;
       handle.style.top = `${top}px`;
       handle.style.display = 'flex';
     } else {
       const mfRect = mf.getBoundingClientRect();
-      handle.style.left = `${mfRect.right - containerRect.left - 8}px`;
+      handle.style.left = `${mfRect.right - containerRect.left - 6}px`;
       handle.style.top = `${mfRect.bottom - containerRect.top - 2}px`;
       handle.style.display = 'flex';
     }

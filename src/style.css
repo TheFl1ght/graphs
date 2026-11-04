@@ -680,7 +680,7 @@ body.resizing-sidebar {
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -8px);
   pointer-events: none;
   user-select: none;
 }
@@ -744,9 +744,18 @@ math-field {
   --selection-background-color: #bfdbfe;
   --selection-color: #1e3a8a;
   --contains-highlight-background-color: rgba(59, 130, 246, 0.15);
-  --placeholder-color: #9ca3af;
+  --placeholder-color: #94a3b8;
+  --placeholder-opacity: 0.65;
   --smart-fence-opacity: 0.38;
   --smart-fence-color: #94a3b8;
+}
+
+math-field::part(placeholder) {
+  color: #94a3b8 !important;
+  opacity: 0.65 !important;
+  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+  font-style: normal !important;
+  font-weight: normal !important;
 }
 
 .ML__error {
