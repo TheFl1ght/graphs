@@ -33,6 +33,7 @@ export function latexToMath(latex: string): string {
 
   // 0. Handle absolute values first: |...|, \left|...\right|, \lvert...\rvert, etc. -> abs(...)
   s = replaceAbsoluteValues(s);
+  s = replaceFloorCeil(s);
 
   // 0.1. Handle calculus operations before powers, fractions, and bracket removal
   s = replaceDerivatives(s);
@@ -146,8 +147,10 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\\ctg\b/g, 'cot');
   s = s.replace(/\\tg\b/g, 'tan');
 
+  s = s.replace(/\\operatorname\{\s*(round|floor|ceil|sin|cos|tan|cot|ln|log|exp|abs|min|max|gamma|Gamma)\s*\}/g, '$1');
+
   // Replace remaining backslashed math functions
-  s = s.replace(/\\(sin|cos|tan|atan|asin|acos|acot|cot|sinh|cosh|tanh|ln|log|exp|abs|min|max|round|floor|ceil|sign|matrix|det|inv|transpose|dot|norm)\b/g, '$1');
+  s = s.replace(/\\(sin|cos|tan|atan|asin|acos|acot|cot|sinh|cosh|tanh|ln|log|exp|abs|min|max|round|floor|ceil|gamma|Gamma|sign|matrix|det|inv|transpose|dot|norm)\b/g, '$1');
 
   // Handle function calls without parentheses: sin x -> sin(x), cos x -> cos(x), ln x -> ln(x), cot x -> cot(x)
   // Matches function name followed by space or identifier/number without '('
@@ -738,6 +741,23 @@ function replaceAbsoluteValues(str: string): string {
   return result;
 }
 
+function replaceFloorCeil(str: string): string {
+  let s = str;
+  // Floor delimiters: \lfloor ... \rfloor
+  s = s.replace(/\\left\s*\\lfloor/g, ' floor( ');
+  s = s.replace(/\\right\s*\\rfloor/g, ' ) ');
+  s = s.replace(/\\lfloor/g, ' floor( ');
+  s = s.replace(/\\rfloor/g, ' ) ');
+
+  // Ceil delimiters: \lceil ... \rceil
+  s = s.replace(/\\left\s*\\lceil/g, ' ceil( ');
+  s = s.replace(/\\right\s*\\rceil/g, ' ) ');
+  s = s.replace(/\\lceil/g, ' ceil( ');
+  s = s.replace(/\\rceil/g, ' ) ');
+
+  return s;
+}
+
 function extractLimit(str: string, pos: number): { limit: string; nextPos: number } | null {
   let i = pos;
   while (i < str.length && /\s/.test(str[i])) i++;
@@ -763,7 +783,8 @@ function extractLimit(str: string, pos: number): { limit: string; nextPos: numbe
   if (str[i] === '\\') {
     const cmdMatch = str.slice(i).match(/^\\([a-zA-Z]+)(?:_\{([^}]*)\}|_([a-zA-Z0-9]))?/);
     if (cmdMatch) {
-      return { limit: cmdMatch[0], nextPos: i + cmdMatch[0].length };
+      const lim = cmdMatch[1] === 'infty' ? 'infty' : cmdMatch[0];
+      return { limit: lim, nextPos: i + cmdMatch[0].length };
     }
   }
 
@@ -831,7 +852,7 @@ function extractDifferential(rest: string): { wrt: string; rawBody: string; diff
   }
 
   // 2. Check differential at the end: ... dt, ... dx, ... d\phi, ... d\varphi
-  const endDiffRegex = /(?:\\cdot|\*|\\times|\\,|\s)+(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|\bd|(?<=[a-zA-Z0-9_)\}\]])\s*d)\s*(?:\\?([a-zA-Z]+))(?:\s*)$/;
+  const endDiffRegex = /(?:\*|\\times|\\,|\s)*(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|(?<=[^a-zA-Z\\])d|(?<=[0-9_)\}\]])\s*d|\bd)\s*(?:\\?([a-zA-Z]+))(?:\s*)$/;
   const matchEnd = rest.match(endDiffRegex);
   if (matchEnd) {
     let wrt = matchEnd[1] || matchEnd[2] || matchEnd[3] || 'x';
@@ -842,14 +863,14 @@ function extractDifferential(rest: string): { wrt: string; rawBody: string; diff
   }
 
   // 3. Fallback: matches differential anywhere within rest
-  const anywhereRegex = /(?:\\cdot|\*|\\times|\\,|\s)*(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|\bd|(?<=[a-zA-Z0-9_)\}\]])\s*d)\s*(?:\\?([a-zA-Z]+))(?![a-zA-Z0-9_])/;
+  const anywhereRegex = /(?:\*|\\times|\\,|\s)*(?:\\differentialD|\\mathrm\{\s*d\s*([a-zA-Z]+)\s*\}|\\mathrm\{\s*d\s*\}|\\operatorname\{\s*d\s*([a-zA-Z]+)\s*\}|\\operatorname\{\s*d\s*\}|(?<=[^a-zA-Z\\])d|(?<=[0-9_)\}\]])\s*d|\bd)\s*(?:\\?([a-zA-Z]+))(?![a-zA-Z0-9_])/;
   const match = rest.match(anywhereRegex);
   if (match) {
     let wrt = match[1] || match[2] || match[3] || 'x';
     if (wrt === 'varphi') wrt = 'phi';
     const diffStart = match.index!;
     const diffEnd = diffStart + match[0].length;
-    const rawBody = (rest.slice(0, diffStart) + rest.slice(diffEnd)).replace(/(?:\\cdot|\*|\\,|\s)+$/, '').trim();
+    const rawBody = (rest.slice(0, diffStart) + rest.slice(diffEnd)).replace(/(?:\*|\\times|\\,|\s)+$/, '').trim();
     return { wrt, rawBody, diffEnd: rest.length, hasDiff: true };
   }
 
@@ -858,6 +879,7 @@ function extractDifferential(rest: string): { wrt: string; rawBody: string; diff
 
 function replaceIntegrals(str: string): string {
   let res = str.replace(/\\placeholder(?:\{[^{}]*\})?/g, '');
+  res = res.replace(/\\cdot/g, ' * ');
 
   let safety = 0;
   while (safety++ < 50) {

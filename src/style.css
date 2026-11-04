@@ -745,17 +745,19 @@ math-field {
   --selection-color: #1e3a8a;
   --contains-highlight-background-color: rgba(59, 130, 246, 0.15);
   --placeholder-color: #94a3b8;
-  --placeholder-opacity: 0.65;
+  --placeholder-opacity: 0.55;
   --smart-fence-opacity: 0.38;
   --smart-fence-color: #94a3b8;
 }
 
 math-field::part(placeholder) {
   color: #94a3b8 !important;
-  opacity: 0.65 !important;
+  opacity: 0.55 !important;
   font-family: KaTeX_Main, 'Times New Roman', serif !important;
   font-style: normal !important;
   font-weight: normal !important;
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 .ML__error {
@@ -765,9 +767,13 @@ math-field::part(placeholder) {
   border-bottom: none !important;
 }
 
-.ML__selected,
-.ML__placeholder-selected {
+.ML__selected {
   background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.ML__placeholder-selected {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 math-field::part(selection) {

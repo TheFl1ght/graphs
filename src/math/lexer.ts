@@ -131,12 +131,12 @@ export class Lexer {
     'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
     'log10', 'log2', 'log', 'exp', 'abs', 'sgn', 'sign',
     'floor', 'ceil', 'round', 'min', 'max',
-    'ln',
+    'ln', 'gamma', 'Gamma',
     'sum', 'prod', 'derivative', 'integral', 'inverse', 'factorial', 'fact',
     'matrix', 'det', 'inv', 'transpose', 'dot', 'norm'
   ];
 
-  private static readonly KNOWN_CONSTANTS: string[] = ['pi', 'tau', 'phi'];
+  private static readonly KNOWN_CONSTANTS: string[] = ['pi', 'tau', 'phi', 'infty', 'infinity', 'inf'];
 
   public static readonly GREEK_LETTERS: string[] = [
     'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon',

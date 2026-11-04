@@ -29,6 +29,9 @@ function setupGreekShortcuts(dict: any) {
   }
   dict['matrix'] = '\\begin{bmatrix} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{bmatrix}';
   dict['vector'] = '\\begin{bmatrix} \\placeholder{} \\\\ \\placeholder{} \\end{bmatrix}';
+  dict['round'] = '\\operatorname{round}';
+  dict['floor'] = '\\lfloor \\placeholder{} \\rfloor';
+  dict['ceil'] = '\\lceil \\placeholder{} \\rceil';
 }
 
 function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number): string {
@@ -56,8 +59,11 @@ function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number
     const rowCells: string[] = [];
     for (let c = 0; c < safeCols; c++) {
       let val = '\\placeholder{}';
-      if (existing[r] && existing[r][c] !== undefined && existing[r][c].trim() !== '') {
-        val = existing[r][c].trim();
+      if (existing[r] && existing[r][c] !== undefined) {
+        const cellStr = existing[r][c].trim();
+        if (cellStr !== '' && cellStr !== '0' && cellStr !== '\\placeholder{}' && cellStr !== '\\placeholder') {
+          val = cellStr;
+        }
       }
       rowCells.push(val);
     }
@@ -107,17 +113,24 @@ function setupMathField(mf: any) {
         style.textContent = `
           .ML__placeholder {
             color: #94a3b8 !important;
-            opacity: 0.65 !important;
+            opacity: 0.55 !important;
             font-family: KaTeX_Main, 'Times New Roman', serif !important;
             font-style: normal !important;
             font-weight: normal !important;
             padding-left: 2px !important;
             padding-right: 2px !important;
+            background: transparent !important;
+            background-color: transparent !important;
           }
-          .ML__placeholder.ML__placeholder-selected {
-            background-color: #bfdbfe !important;
-            opacity: 1 !important;
-            color: #1e3a8a !important;
+          .ML__placeholder.ML__placeholder-selected,
+          .ML__focused .ML__placeholder.ML__placeholder-selected,
+          .ML__focused .ML__selected .ML__placeholder,
+          .ML__focused .ML__placeholder.ML__selected,
+          .ML__focused .ML__selected:has(.ML__placeholder) {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: #94a3b8 !important;
+            opacity: 0.55 !important;
           }
         `;
         mf.shadowRoot.appendChild(style);
@@ -146,7 +159,38 @@ if (typeof window !== 'undefined') {
         const originalConnected = (window as any).MathfieldElement.prototype.connectedCallback;
         (window as any).MathfieldElement.prototype.connectedCallback = function() {
           originalConnected?.call(this);
+          this.placeholderSymbol = '0';
           purgeLtGtShortcuts(this);
+          try {
+            if (this.shadowRoot && !this.shadowRoot.querySelector('#mf-matrix-ph-style')) {
+              const style = document.createElement('style');
+              style.id = 'mf-matrix-ph-style';
+              style.textContent = `
+                .ML__placeholder {
+                  color: #94a3b8 !important;
+                  opacity: 0.55 !important;
+                  font-family: KaTeX_Main, 'Times New Roman', serif !important;
+                  font-style: normal !important;
+                  font-weight: normal !important;
+                  padding-left: 2px !important;
+                  padding-right: 2px !important;
+                  background: transparent !important;
+                  background-color: transparent !important;
+                }
+                .ML__placeholder.ML__placeholder-selected,
+                .ML__focused .ML__placeholder.ML__placeholder-selected,
+                .ML__focused .ML__selected .ML__placeholder,
+                .ML__focused .ML__placeholder.ML__selected,
+                .ML__focused .ML__selected:has(.ML__placeholder) {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  color: #94a3b8 !important;
+                  opacity: 0.55 !important;
+                }
+              `;
+              this.shadowRoot.appendChild(style);
+            }
+          } catch (_) {}
         };
       }
 
@@ -198,7 +242,7 @@ function upgradeMathFunctions(latex: string): string {
   });
 
   // Protect integrals, sums, products and big operators and their limits
-  res = res.replace(/(\\(?:int|iint|iiint|oint|sum|prod|coprod|lim|limsup|liminf)\b(?:(?:_(?:\{[^{}]*\}|[a-zA-Z0-9]))|(?:\\^(?:\{[^{}]*\}|[a-zA-Z0-9])))*)/g, (match) => {
+  res = res.replace(/(\\(?:int|iint|iiint|oint|sum|prod|coprod|lim|limsup|liminf)\b(?:(?:_(?:\{[^{}]*\}|\\?[a-zA-Z0-9]+))|(?:\^(?:\{[^{}]*\}|\\?[a-zA-Z0-9]+)))*)/g, (match) => {
     protectedBlocks.push(match);
     return `__PROTECTED_BLOCK_${protectedBlocks.length - 1}__`;
   });
@@ -219,6 +263,7 @@ function upgradeMathFunctions(latex: string): string {
   // 2. Plain function names without backslash: arcsin, arccos, arctan, arccot, etc.
   const plainFnRegex = /(?<!\\)\b(arcsin|arccos|arctan|arccot|sinh|cosh|tanh|sqrt|cbrt|sin|cos|tan|cot|sec|csc|ln|log|exp|abs)\b/g;
   res = res.replace(plainFnRegex, '\\$1');
+  res = res.replace(/(?<![a-zA-Z\\])\b(round)\b/g, '\\operatorname{round}');
 
   // 3. Spaced letters for common functions: 's i n', 'c o s', 't a n', 'c o t', 'l n'
   res = res.replace(/\b(?:s\s+i\s+n)\b/g, '\\sin');
@@ -272,6 +317,19 @@ function upgradeMathFunctions(latex: string): string {
   // 6. Matrix and Vector auto-upgrade from plain keyword
   res = res.replace(/(?<![a-zA-Z\\])\b(?:m\s*a\s*t\s*r\s*i\s*x|matrix)\b/gi, '\\begin{bmatrix} \\placeholder{} & \\placeholder{} \\\\ \\placeholder{} & \\placeholder{} \\end{bmatrix}');
   res = res.replace(/(?<![a-zA-Z\\])\b(?:v\s*e\s*c\s*t\s*o\s*r|vector)\b/gi, '\\begin{bmatrix} \\placeholder{} \\\\ \\placeholder{} \\end{bmatrix}');
+
+  // Replace bare zeros in matrix definitions with placeholders
+  res = res.replace(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/g, (_match, env, body) => {
+    const rows = body.split(/\\\\|\\cr/).map((row: string) => {
+      const cols = row.split('&').map((col: string) => {
+        const trimmed = col.trim();
+        if (trimmed === '0') return ' \\placeholder{} ';
+        return col;
+      });
+      return cols.join('&');
+    });
+    return `\\begin{${env}} ${rows.join(' \\\\ ')} \\end{${env}}`;
+  });
 
   // Restore protected blocks
   res = res.replace(/__PROTECTED_BLOCK_(\d+)__/g, (_m, idx) => protectedBlocks[parseInt(idx, 10)]);

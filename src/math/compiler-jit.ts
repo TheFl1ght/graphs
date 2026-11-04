@@ -96,6 +96,7 @@ export class JITCompiler {
         // Standard constants mapped to Math
         if (name === 'pi' || name === 'PI') return 'Math.PI';
         if (name === 'e' || name === 'E') return 'Math.E';
+        if (name === 'infty' || name === 'infinity' || name === 'inf') return 'Infinity';
 
         // Dynamic lookup from scope
         return `(scope.getConstant("${name}") ?? NaN)`;
@@ -168,6 +169,9 @@ export class JITCompiler {
 
         if (mathFns.includes(name)) {
           return `Math.${name}(${argsJs})`;
+        }
+        if (name === 'gamma' || name === 'Gamma') {
+          return `(scope.getFunction("${name}") ?? ((z) => NaN))(${argsJs})`;
         }
         if (name === 'arctan' || name === 'atan') {
           return `Math.atan(${argsJs})`;
@@ -330,9 +334,44 @@ export class JITCompiler {
         const bodyJs = JITCompiler.toJsCode(node.body, innerParams);
 
         return `((_lower, _upper) => {
-          if (!Number.isFinite(_lower) || !Number.isFinite(_upper)) return NaN;
+          if (!Number.isFinite(_lower) && !Number.isFinite(_upper)) return NaN;
           if (_lower === _upper) return 0;
           const _integrand = (${wrt}) => (${bodyJs});
+
+          // Improper integral: [lower, +Infinity)
+          if (Number.isFinite(_lower) && _upper === Infinity) {
+            const _n = 150;
+            let _sum = 0;
+            for (let _i = 0; _i < _n; _i++) {
+              const _u = (_i + 0.5) / _n;
+              const _denom = 1 - _u;
+              const _t = _lower + _u / _denom;
+              const _v = _integrand(_t);
+              if (Number.isFinite(_v)) {
+                _sum += _v / (_denom * _denom);
+              }
+            }
+            return _sum / _n;
+          }
+
+          // Improper integral: (-Infinity, upper]
+          if (_lower === -Infinity && Number.isFinite(_upper)) {
+            const _n = 150;
+            let _sum = 0;
+            for (let _i = 0; _i < _n; _i++) {
+              const _u = (_i + 0.5) / _n;
+              const _denom = 1 - _u;
+              const _t = _upper - _u / _denom;
+              const _v = _integrand(_t);
+              if (Number.isFinite(_v)) {
+                _sum += _v / (_denom * _denom);
+              }
+            }
+            return _sum / _n;
+          }
+
+          if (!Number.isFinite(_lower) || !Number.isFinite(_upper)) return NaN;
+
           const _n = 120;
           const _h = (_upper - _lower) / _n;
           let _sum = 0;

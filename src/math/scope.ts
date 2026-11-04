@@ -259,6 +259,9 @@ export class Scope {
     this.constants.set('E', Math.E);
     this.constants.set('tau', Math.PI * 2);
     this.constants.set('phi', (1 + Math.sqrt(5)) / 2);
+    this.constants.set('infty', Infinity);
+    this.constants.set('infinity', Infinity);
+    this.constants.set('inf', Infinity);
 
     // Standard Math Functions
     this.functions.set('sin', Math.sin);
@@ -292,6 +295,8 @@ export class Scope {
     this.functions.set('max', Math.max);
     this.functions.set('factorial', (n: number) => mathFactorial(n));
     this.functions.set('fact', (n: number) => mathFactorial(n));
+    this.functions.set('gamma', gamma);
+    this.functions.set('Gamma', gamma);
 
     // Matrix / Vector Functions
     this.functions.set('matrix', (rows: number, cols: number, ...elements: number[]) => _createMatrix(rows, cols, elements));
