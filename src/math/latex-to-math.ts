@@ -763,20 +763,26 @@ function extractLimit(str: string, pos: number): { limit: string; nextPos: numbe
   while (i < str.length && /\s/.test(str[i])) i++;
   if (i >= str.length) return null;
 
-  if (str[i] === '{') {
-    let depth = 0;
-    const start = i + 1;
-    while (i < str.length) {
-      if (str[i] === '{') depth++;
-      else if (str[i] === '}') {
-        depth--;
-        if (depth === 0) {
-          return { limit: str.substring(start, i), nextPos: i + 1 };
-        }
-      }
-      i++;
+  // Next is another limit indicator -> current limit is empty
+  if (str[i] === '^' || str[i] === '_') {
+    return { limit: '', nextPos: i };
+  }
+
+  // Directly points to \placeholder
+  if (str.slice(i).startsWith('\\placeholder')) {
+    const phMatch = str.slice(i).match(/^\\placeholder(?:\{[^{}]*\})?/);
+    if (phMatch) {
+      return { limit: '', nextPos: i + phMatch[0].length };
     }
-    return { limit: str.substring(start), nextPos: str.length };
+  }
+
+  if (str[i] === '{') {
+    const grp = extractGroup(str, i);
+    if (grp) {
+      const cleaned = grp.content.replace(/\\placeholder(?:\{[^{}]*\})?/g, '').trim();
+      return { limit: cleaned, nextPos: grp.endIndex };
+    }
+    return { limit: '', nextPos: str.length };
   }
 
   // Backslashed command or Greek letter with optional subscript: \alpha, \alpha_0, \alpha_{0}, \pi, \infty
@@ -794,7 +800,7 @@ function extractLimit(str: string, pos: number): { limit: string; nextPos: numbe
     return { limit: idMatch[0], nextPos: i + idMatch[0].length };
   }
 
-  return { limit: str[i], nextPos: i + 1 };
+  return { limit: '', nextPos: i + 1 };
 }
 
 function stripTrailingDomainRestriction(str: string): string {
@@ -891,6 +897,11 @@ function replaceIntegrals(str: string): string {
 
     while (pos < res.length && /\s/.test(res[pos])) pos++;
 
+    // Skip \limits, \nolimits, \displaylimits if present
+    if (res.slice(pos).startsWith('\\limits')) pos += 7;
+    else if (res.slice(pos).startsWith('\\nolimits')) pos += 9;
+    else if (res.slice(pos).startsWith('\\displaylimits')) pos += 14;
+
     let lower = '0';
     let upper = '1';
     let hasLower = false;
@@ -904,7 +915,8 @@ function replaceIntegrals(str: string): string {
         pos++;
         const lim = extractLimit(res, pos);
         if (lim) {
-          lower = lim.limit;
+          const cleaned = lim.limit.replace(/\\placeholder(?:\{[^{}]*\})?/g, '').trim();
+          lower = cleaned || '0';
           pos = lim.nextPos;
           hasLower = true;
         }
@@ -912,7 +924,8 @@ function replaceIntegrals(str: string): string {
         pos++;
         const lim = extractLimit(res, pos);
         if (lim) {
-          upper = lim.limit;
+          const cleaned = lim.limit.replace(/\\placeholder(?:\{[^{}]*\})?/g, '').trim();
+          upper = cleaned || '1';
           pos = lim.nextPos;
           hasUpper = true;
         }

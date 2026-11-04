@@ -231,7 +231,7 @@ function isInsideBigOpLimit(atom: any): boolean {
   return false;
 }
 
-function upgradeMathFunctions(latex: string): string {
+export function upgradeMathFunctions(latex: string): string {
   let res = latex;
 
   // Protect anything inside \mathrm{...} or \operatorname{...} so decomposed functions are never mangled
