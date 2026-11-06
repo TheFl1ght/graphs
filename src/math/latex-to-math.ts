@@ -112,6 +112,7 @@ export function latexToMath(latex: string): string {
   s = s.replace(/\\(?:le|leq|leqslant)\b/g, '<=');
   s = s.replace(/\\(?:ge|geq|geqslant)\b/g, '>=');
   s = s.replace(/\\(?:ne|neq)\b/g, '!=');
+  s = s.replace(/\\not\s*=/g, '!=');
 
   // Handle subscripts: k_{max} -> k_max, x_1 -> x_1, d_{y} -> d_y, \alpha_{0} -> alpha_0
   s = s.replace(/\\?([a-zA-Z]+)_\{([a-zA-Z0-9_]+)\}/g, '$1_$2');
@@ -859,21 +860,75 @@ function extractLimit(str: string, pos: number): { limit: string; nextPos: numbe
   return { limit: '', nextPos: i + 1 };
 }
 
-function extractRestrictions(str: string): { base: string; conditions: string[] } {
+function normalizeMathBraces(str: string): string {
   let s = str.trim();
-  // Strip empty placeholders and unclosed right delimiter
   s = s.replace(/\\placeholder\{[^}]*\}/g, '');
   s = s.replace(/\\placeholder/g, '');
   s = s.replace(/\\right\./g, '');
   s = s.replace(/\\left\./g, '');
-  s = s.replace(/\\left\s*\\{/g, '\\{');
-  s = s.replace(/\\right\s*\\}/g, '\\}');
+
+  s = s.replace(/\\textcolor\{[^}]*\}\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\color\{[^}]*\}/g, '');
+  s = s.replace(/\\style\{[^}]*\}\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\class\{[^}]*\}\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\cssId\{[^}]*\}\{([^}]*)\}/g, '$1');
+
+  s = s.replace(/\\left\s*\\lbrace/g, '{');
+  s = s.replace(/\\right\s*\\rbrace/g, '}');
+  s = s.replace(/\\left\s*\\\{/g, '{');
+  s = s.replace(/\\right\s*\\\}/g, '}');
   s = s.replace(/\\left\s*\{/g, '{');
   s = s.replace(/\\right\s*\}/g, '}');
+  s = s.replace(/\\lbrace\b/g, '{');
+  s = s.replace(/\\rbrace\b/g, '}');
+  s = s.replace(/\\\{/g, '{');
+  s = s.replace(/\\\}/g, '}');
+  return s;
+}
 
+function convertIntervalToInequality(str: string): string {
+  let s = str;
+  s = s.replace(/\\(?:text|mathrm|operatorname)\{\s*in\s*\}/g, ' in ');
+  s = s.replace(/\\in\b/g, ' in ');
+  s = s.replace(/\\lbrack\b/g, '[');
+  s = s.replace(/\\rbrack\b/g, ']');
+  s = s.replace(/\\left\s*([(\[])/g, '$1');
+  s = s.replace(/\\right\s*([)\]])/g, '$1');
+
+  // Match: (var) in [a, b] OR (var)in[a, b] OR (var) in (a, b) OR (var)in(a, b)
+  // Handles separator , or ;
+  const intervalRegex = /(?<![a-zA-Z0-9_])([a-zA-Z_][a-zA-Z0-9_]*?)(?:\s+in\s+|\s*in\s*)([(\[])\s*([^,;]+?)\s*[,;]\s*([^,;]+?)\s*([)\]])/g;
+
+  return s.replace(intervalRegex, (_match, varName, openBracket, leftBound, rightBound, closeBracket) => {
+    const v = varName.trim();
+    const l = leftBound.trim();
+    const r = rightBound.trim();
+    const leftOp = openBracket === '[' ? '<=' : '<';
+    const rightOp = closeBracket === ']' ? '<=' : '<';
+
+    const isLeftNegInf = /^-(?:\\infty|infty|inf|infinity)$/i.test(l);
+    const isRightPosInf = /^(?:\+?\\infty|\+?infty|\+?inf|\+?infinity)$/i.test(r);
+
+    if (isLeftNegInf && isRightPosInf) {
+      return '1 == 1';
+    }
+    if (isLeftNegInf) {
+      return `${v} ${rightOp} ${r}`;
+    }
+    if (isRightPosInf) {
+      const vOp = openBracket === '[' ? '>=' : '>';
+      return `${v} ${vOp} ${l}`;
+    }
+
+    return `${l} ${leftOp} ${v} ${rightOp} ${r}`;
+  });
+}
+
+function extractRestrictions(rawStr: string): { base: string; conditions: string[] } {
+  let s = normalizeMathBraces(rawStr);
   const conditions: string[] = [];
 
-  // Repeatedly extract trailing {condition} or \{condition\}
+  // Repeatedly extract trailing {condition}
   let changed = true;
   while (changed) {
     changed = false;
@@ -883,9 +938,6 @@ function extractRestrictions(str: string): { base: string; conditions: string[] 
       break;
     }
 
-    const hasBackslashBeforeClose = s.length >= 2 && s[s.length - 2] === '\\';
-    const endOffset = hasBackslashBeforeClose ? 2 : 1;
-
     let depth = 0;
     let i = s.length - 1; // start scanning backwards from the '}'
     while (i >= 0) {
@@ -894,15 +946,15 @@ function extractRestrictions(str: string): { base: string; conditions: string[] 
       } else if (s[i] === '{') {
         depth--;
         if (depth === 0) {
-          let braceStart = i;
-          if (braceStart > 0 && s[braceStart - 1] === '\\') {
-            braceStart--;
-          }
-          const inner = s.substring(i + 1, s.length - endOffset).trim();
-          if (/\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq)\b|<=|>=|<|>|!=|==/.test(inner)) {
+          const innerRaw = s.substring(i + 1, s.length - 1).trim();
+          const inner = convertIntervalToInequality(innerRaw);
+          if (
+            /\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq|in)\b|\bin\b|<=|>=|<|>|!=|==/.test(inner) ||
+            inner !== innerRaw
+          ) {
             const parts = splitConditionsByComma(inner);
             conditions.unshift(...parts);
-            s = s.substring(0, braceStart).trimEnd();
+            s = s.substring(0, i).trimEnd();
             changed = true;
           }
           break;
@@ -917,22 +969,23 @@ function extractRestrictions(str: string): { base: string; conditions: string[] 
   while (changed) {
     changed = false;
     s = s.trimStart();
-    const hasBackslashBeforeOpen = s.startsWith('\\{');
-    if (!s.startsWith('{') && !hasBackslashBeforeOpen) {
+    if (!s.startsWith('{')) {
       break;
     }
 
-    const startOffset = hasBackslashBeforeOpen ? 1 : 0;
     let depth = 0;
-    for (let i = startOffset; i < s.length; i++) {
+    for (let i = 0; i < s.length; i++) {
       if (s[i] === '{') {
         depth++;
       } else if (s[i] === '}') {
         depth--;
         if (depth === 0) {
-          const hasBackslashBeforeClose = i > 0 && s[i - 1] === '\\';
-          const inner = s.substring(startOffset + 1, hasBackslashBeforeClose ? i - 1 : i).trim();
-          if (/\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq)\b|<=|>=|<|>|!=|==/.test(inner)) {
+          const innerRaw = s.substring(1, i).trim();
+          const inner = convertIntervalToInequality(innerRaw);
+          if (
+            /\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq|in)\b|\bin\b|<=|>=|<|>|!=|==/.test(inner) ||
+            inner !== innerRaw
+          ) {
             const parts = splitConditionsByComma(inner);
             conditions.push(...parts);
             s = s.substring(i + 1).trimStart();
