@@ -276,7 +276,6 @@ export class CurveSampler {
     // 2. Trace left branch from x0 towards xa until it exits the screen
     let lowL = x0;
     let highL = xa;
-    let reachedOffscreenL = false;
     for (let i = 0; i < 40; i++) {
       const m = (lowL + highL) * 0.5;
       const ym = this.safeEval(fn, m);
@@ -285,18 +284,11 @@ export class CurveSampler {
         currentStroke.push(sm);
         lowL = m;
         if (this.isOffScreen(sm.y, h)) {
-          reachedOffscreenL = true;
           break;
         }
       } else {
         highL = m;
       }
-    }
-    // Fallback: guaranteed exit off-screen along the asymptote line
-    if (!reachedOffscreenL) {
-      const sAsymX = camera.worldToScreen(xa, 0).x;
-      const offY = (y0 >= 0 ? -this.offMargin - 20 : h + this.offMargin + 20);
-      currentStroke.push({ x: sAsymX, y: offY });
     }
     if (currentStroke.length > 0) {
       strokes.push(currentStroke);
@@ -308,7 +300,6 @@ export class CurveSampler {
     let bestY = y1;
     let lowR = xa;
     let highR = x1;
-    let reachedOffscreenR = false;
     for (let i = 0; i < 40; i++) {
       const m = (lowR + highR) * 0.5;
       const ym = this.safeEval(fn, m);
@@ -319,7 +310,6 @@ export class CurveSampler {
         bestY = ym;
         highR = m;
         if (this.isOffScreen(sm.y, h)) {
-          reachedOffscreenR = true;
           break;
         }
       } else {
@@ -328,12 +318,6 @@ export class CurveSampler {
     }
 
     const rightStroke: Point2D[] = [];
-    // Fallback: guaranteed entry from off-screen along the asymptote line
-    if (!reachedOffscreenR) {
-      const sAsymX = camera.worldToScreen(xa, 0).x;
-      const offY = (y1 >= 0 ? -this.offMargin - 20 : h + this.offMargin + 20);
-      rightStroke.push({ x: sAsymX, y: offY });
-    }
     if (bestStart) {
       rightStroke.push(bestStart);
       this.subdivide(fn, camera, bestX, bestY, bestStart, x1, y1, s1, 0, rightStroke);
@@ -355,8 +339,6 @@ export class CurveSampler {
     const h = camera.screenHeight;
     let low = x0;
     let high = x1;
-    let reachedOff = false;
-
     for (let i = 0; i < 40; i++) {
       const mid = (low + high) * 0.5;
       const ym = this.safeEval(fn, mid);
@@ -365,18 +347,11 @@ export class CurveSampler {
         const sm = camera.worldToScreen(mid, ym);
         stroke.push(sm);
         if (this.isOffScreen(sm.y, h)) {
-          reachedOff = true;
           break;
         }
       } else {
         high = mid;
       }
-    }
-
-    if (!reachedOff && stroke.length > 0) {
-      const lastPt = stroke[stroke.length - 1];
-      const offY = lastPt.y < h * 0.5 ? -this.offMargin - 20 : h + this.offMargin + 20;
-      stroke.push({ x: camera.worldToScreen(low, 0).x, y: offY });
     }
   }
 
@@ -395,7 +370,6 @@ export class CurveSampler {
     let bestX = x1;
     let bestY = y1;
     let bestS = s1;
-    let reachedOff = false;
 
     for (let i = 0; i < 40; i++) {
       const mid = (low + high) * 0.5;
@@ -406,7 +380,6 @@ export class CurveSampler {
         bestS = camera.worldToScreen(mid, ym);
         high = mid;
         if (this.isOffScreen(bestS.y, h)) {
-          reachedOff = true;
           break;
         }
       } else {
@@ -414,10 +387,6 @@ export class CurveSampler {
       }
     }
 
-    if (!reachedOff) {
-      const offY = s1.y < h * 0.5 ? -this.offMargin - 20 : h + this.offMargin + 20;
-      stroke.push({ x: camera.worldToScreen(high, 0).x, y: offY });
-    }
     stroke.push(bestS);
     this.subdivide(fn, camera, bestX, bestY, bestS, x1, y1, s1, 0, stroke);
   }
@@ -711,7 +680,6 @@ export class CurveSampler {
 
     let lowL = y0;
     let highL = ya;
-    let reachedOffscreenL = false;
     for (let i = 0; i < 40; i++) {
       const m = (lowL + highL) * 0.5;
       const xm = this.safeEval(fn, m);
@@ -720,17 +688,11 @@ export class CurveSampler {
         currentStroke.push(sm);
         lowL = m;
         if (this.isOffScreenX(sm.x, w)) {
-          reachedOffscreenL = true;
           break;
         }
       } else {
         highL = m;
       }
-    }
-    if (!reachedOffscreenL) {
-      const sAsymY = camera.worldToScreen(0, ya).y;
-      const offX = (x0 >= 0 ? w + this.offMargin + 20 : -this.offMargin - 20);
-      currentStroke.push({ x: offX, y: sAsymY });
     }
     if (currentStroke.length > 0) {
       strokes.push(currentStroke);
@@ -741,7 +703,6 @@ export class CurveSampler {
     let bestX = x1;
     let lowR = ya;
     let highR = y1;
-    let reachedOffscreenR = false;
     for (let i = 0; i < 40; i++) {
       const m = (lowR + highR) * 0.5;
       const xm = this.safeEval(fn, m);
@@ -752,7 +713,6 @@ export class CurveSampler {
         bestX = xm;
         highR = m;
         if (this.isOffScreenX(sm.x, w)) {
-          reachedOffscreenR = true;
           break;
         }
       } else {
@@ -761,11 +721,6 @@ export class CurveSampler {
     }
 
     const rightStroke: Point2D[] = [];
-    if (!reachedOffscreenR) {
-      const sAsymY = camera.worldToScreen(0, ya).y;
-      const offX = (x1 >= 0 ? w + this.offMargin + 20 : -this.offMargin - 20);
-      rightStroke.push({ x: offX, y: sAsymY });
-    }
     if (bestStart) {
       rightStroke.push(bestStart);
       this.subdivideY(fn, camera, bestY, bestX, bestStart, y1, x1, s1, 0, rightStroke);
@@ -787,8 +742,6 @@ export class CurveSampler {
     const w = camera.screenWidth;
     let low = y0;
     let high = y1;
-    let reachedOff = false;
-
     for (let i = 0; i < 40; i++) {
       const mid = (low + high) * 0.5;
       const xm = this.safeEval(fn, mid);
@@ -797,18 +750,11 @@ export class CurveSampler {
         const sm = camera.worldToScreen(xm, mid);
         stroke.push(sm);
         if (this.isOffScreenX(sm.x, w)) {
-          reachedOff = true;
           break;
         }
       } else {
         high = mid;
       }
-    }
-
-    if (!reachedOff && stroke.length > 0) {
-      const lastPt = stroke[stroke.length - 1];
-      const offX = lastPt.x < w * 0.5 ? -this.offMargin - 20 : w + this.offMargin + 20;
-      stroke.push({ x: offX, y: camera.worldToScreen(0, low).y });
     }
   }
 
@@ -827,7 +773,6 @@ export class CurveSampler {
     let bestY = y1;
     let bestX = x1;
     let bestS = s1;
-    let reachedOff = false;
 
     for (let i = 0; i < 40; i++) {
       const mid = (low + high) * 0.5;
@@ -838,7 +783,6 @@ export class CurveSampler {
         bestS = camera.worldToScreen(xm, mid);
         high = mid;
         if (this.isOffScreenX(bestS.x, w)) {
-          reachedOff = true;
           break;
         }
       } else {
@@ -846,10 +790,6 @@ export class CurveSampler {
       }
     }
 
-    if (!reachedOff) {
-      const offX = s1.x < w * 0.5 ? -this.offMargin - 20 : w + this.offMargin + 20;
-      stroke.push({ x: offX, y: camera.worldToScreen(0, high).y });
-    }
     stroke.push(bestS);
     this.subdivideY(fn, camera, bestY, bestX, bestS, y1, x1, s1, 0, stroke);
   }

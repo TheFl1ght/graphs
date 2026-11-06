@@ -399,13 +399,14 @@ export class JITCompiler {
 
             function _newton(g) {
               let cur = g;
-              for (let iter = 0; iter < 25; iter++) {
+              for (let iter = 0; iter < 18; iter++) {
                 const val = _fn(cur) - target;
                 if (Math.abs(val) < eps) return cur;
                 const h = Math.max(1e-6, Math.abs(cur) * 1e-6);
                 const deriv = (_fn(cur + h) - _fn(cur - h)) / (2 * h);
                 if (Math.abs(deriv) < 1e-12 || !Number.isFinite(deriv)) return null;
-                const next = cur - val / deriv;
+                const step = Math.max(-4, Math.min(4, val / deriv));
+                const next = cur - step;
                 if (!Number.isFinite(next) || Math.abs(next) > 1e9) return null;
                 if (Math.abs(next - cur) < eps) return next;
                 cur = next;
@@ -425,11 +426,13 @@ export class JITCompiler {
 
             const initialGuesses = [
               target,
-              target > 0 ? 1 : -1,
+              target * 0.8,
+              target * 1.2,
               target * 0.5,
               target * 1.5,
               target * 2,
               0,
+              target > 0 ? 1 : -1,
               10,
               -10
             ];
@@ -440,7 +443,7 @@ export class JITCompiler {
 
             if (rawRoots.length > 0) {
               const r0 = rawRoots[0];
-              const perturbations = [r0 + 1, r0 - 1, r0 + 2.5, r0 - 2.5, r0 + 5, r0 - 5];
+              const perturbations = [r0 + 1, r0 - 1, r0 + 2.5, r0 - 2.5];
               for (let i = 0; i < perturbations.length; i++) {
                 _addRoot(_newton(perturbations[i]));
                 if (rawRoots.length > 2) break;
@@ -449,37 +452,30 @@ export class JITCompiler {
 
             // Fallback bracket search if no root found yet
             if (rawRoots.length === 0) {
-              let left = -100, right = 100;
-              let fL = _fn(left) - target;
-              let fR = _fn(right) - target;
-              if (fL * fR > 0) {
-                for (let step = 200; step <= 10000; step *= 2) {
-                  if ((_fn(-step) - target) * (_fn(step) - target) <= 0) {
-                    left = -step;
-                    right = step;
-                    fL = _fn(left) - target;
-                    fR = _fn(right) - target;
-                    break;
+              let prevX = 0;
+              let prevVal = _fn(0) - target;
+              for (let step = 1; step <= 100; step += 2) {
+                const val = _fn(step) - target;
+                if (prevVal * val <= 0) {
+                  let a = prevX, b = step;
+                  for (let k = 0; k < 40; k++) {
+                    const mid = (a + b) * 0.5;
+                    const vMid = _fn(mid) - target;
+                    if (Math.abs(vMid) < eps || (b - a) < eps) {
+                      _addRoot(mid);
+                      break;
+                    }
+                    if (prevVal * vMid <= 0) {
+                      b = mid;
+                    } else {
+                      a = mid;
+                      prevVal = vMid;
+                    }
                   }
+                  break;
                 }
-              }
-
-              if (fL * fR <= 0) {
-                for (let i = 0; i < 60; i++) {
-                  const mid = (left + right) / 2;
-                  const fMid = _fn(mid) - target;
-                  if (Math.abs(fMid) < eps || (right - left) < eps) {
-                    _addRoot(mid);
-                    break;
-                  }
-                  if (fL * fMid <= 0) {
-                    right = mid;
-                    fR = fMid;
-                  } else {
-                    left = mid;
-                    fL = fMid;
-                  }
-                }
+                prevX = step;
+                prevVal = val;
               }
             }
 
