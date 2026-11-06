@@ -9,18 +9,24 @@ export interface Point2D {
 export class CurveSampler {
   private maxDepth: number = 7;
   private tolerancePx: number = 0.5; // Half a pixel error tolerance
+  private offMargin: number = 100; // Extra screen margin in pixels before clipping
+
+  private isOffScreen(sy: number, h: number): boolean {
+    return sy < -this.offMargin || sy > h + this.offMargin;
+  }
 
   /**
    * Samples a function f(x) adaptively over the camera's visible horizontal span.
    * Produces a list of disconnected continuous line strips (Point2D[][]),
-   * automatically splitting strokes across asymptotes and discontinuities.
+   * automatically splitting strokes across asymptotes and discontinuities,
+   * and extending curves all the way off-screen so they never terminate prematurely in mid-air.
    */
   public sample(
     fn: CompiledFunction,
     camera: Camera2D
   ): Point2D[][] {
     const width = camera.screenWidth;
-    const coarseStepPx = 4; // Dense and responsive 4px step
+    const coarseStepPx = 4; // Responsive 4px step
     const strokes: Point2D[][] = [];
     let currentStroke: Point2D[] = [];
 
@@ -45,56 +51,33 @@ export class CurveSampler {
       if (!prevValid && !currValid) {
         // Both invalid: function is outside domain
       } else if (prevValid && !currValid) {
-        // Function enters undefined domain: pinpoint exact mathematical boundary via bisection
-        const boundary = this.findBoundary(fn, prevWorld.x, currWorld.x, true);
-        if (boundary) {
-          const sBoundary = camera.worldToScreen(boundary.x, boundary.y);
-          this.subdivide(
-            fn,
-            camera,
-            prevWorld.x,
-            prevY,
-            prevScreen,
-            boundary.x,
-            boundary.y,
-            sBoundary,
-            0,
-            currentStroke
-          );
-        }
+        // Function enters undefined domain or pole: trace until offscreen or boundary
+        this.resolveExit(fn, camera, prevWorld.x, prevY, prevScreen, currWorld.x, currentStroke);
         if (currentStroke.length > 0) {
           strokes.push(currentStroke);
           currentStroke = [];
         }
       } else if (!prevValid && currValid) {
-        // Function exits undefined domain: pinpoint exact mathematical boundary via bisection
-        const boundary = this.findBoundary(fn, prevWorld.x, currWorld.x, false);
-        if (boundary) {
-          const sBoundary = camera.worldToScreen(boundary.x, boundary.y);
-          currentStroke.push(sBoundary);
-          this.subdivide(
+        // Function exits undefined domain or pole: trace from boundary or offscreen
+        const entryStroke: Point2D[] = [];
+        this.resolveEntry(fn, camera, prevWorld.x, currWorld.x, currY, currScreen, entryStroke);
+        currentStroke = entryStroke;
+      } else {
+        // Both valid. Check for asymptote / singularity / jump discontinuity crossing
+        if (this.detectAsymptote(fn, prevWorld.x, prevY, prevScreen, currWorld.x, currY, currScreen, camera)) {
+          this.resolveDiscontinuity(
             fn,
             camera,
-            boundary.x,
-            boundary.y,
-            sBoundary,
+            prevWorld.x,
+            prevY,
+            prevScreen,
             currWorld.x,
             currY,
             currScreen,
-            0,
-            currentStroke
+            currentStroke,
+            strokes
           );
-        } else {
-          currentStroke.push(currScreen);
-        }
-      } else {
-        // Check for asymptote / singularity crossing (e.g. tan(x), 1/x)
-        if (this.isAsymptote(fn, prevWorld.x, prevY, currWorld.x, currY, camera)) {
-          if (currentStroke.length > 0) {
-            strokes.push(currentStroke);
-            currentStroke = [];
-          }
-          currentStroke.push(currScreen);
+          currentStroke = strokes.pop() ?? [];
         } else {
           // Adaptively subdivide the interval to capture high curvature
           this.subdivide(
@@ -126,49 +109,6 @@ export class CurveSampler {
     return strokes;
   }
 
-  /**
-   * Refines the exact boundary between defined and undefined function domain
-   * using binary search (bisection) with 16 iterations (< 0.0001px error).
-   * @param validOnLeft true if x0 is valid and x1 is invalid; false if x0 is invalid and x1 is valid.
-   */
-  private findBoundary(
-    fn: CompiledFunction,
-    x0: number,
-    x1: number,
-    validOnLeft: boolean
-  ): { x: number; y: number } | null {
-    let low = x0;
-    let high = x1;
-    let bestX = validOnLeft ? x0 : x1;
-    let bestY = this.safeEval(fn, bestX);
-
-    if (!Number.isFinite(bestY)) {
-      return null;
-    }
-
-    for (let i = 0; i < 16; i++) {
-      const mid = (low + high) * 0.5;
-      const ym = this.safeEval(fn, mid);
-      if (Number.isFinite(ym)) {
-        bestX = mid;
-        bestY = ym;
-        if (validOnLeft) {
-          low = mid;
-        } else {
-          high = mid;
-        }
-      } else {
-        if (validOnLeft) {
-          high = mid;
-        } else {
-          low = mid;
-        }
-      }
-    }
-
-    return Number.isFinite(bestY) ? { x: bestX, y: bestY } : null;
-  }
-
   private safeEval(fn: CompiledFunction, x: number): number {
     try {
       const y = fn(x);
@@ -179,50 +119,293 @@ export class CurveSampler {
   }
 
   /**
-   * Detects whether an asymptote or jump discontinuity exists between x0 and x1.
+   * Detects whether an asymptote, singularity, or jump discontinuity exists between x0 and x1.
    */
-  private isAsymptote(
+  private detectAsymptote(
     fn: CompiledFunction,
     x0: number,
     y0: number,
+    s0: Point2D,
     x1: number,
     y1: number,
+    s1: Point2D,
     camera: Camera2D
   ): boolean {
-    const s0 = camera.worldToScreen(x0, y0);
-    const s1 = camera.worldToScreen(x1, y1);
-
+    const h = camera.screenHeight;
     const dyPx = Math.abs(s1.y - s0.y);
 
-    // If screen vertical jump is small, it's not an asymptote
-    if (dyPx < camera.screenHeight * 0.5) {
-      return false;
-    }
-
-    // Check midpoint
     const xm = (x0 + x1) * 0.5;
     const ym = this.safeEval(fn, xm);
+
+    // Singularity exists at midpoint
     if (!Number.isFinite(ym)) return true;
 
-    // Check for sign flip with massive gradient (like 1/x or tan(x))
+    const sm = camera.worldToScreen(xm, ym);
+
+    // One point is off the top and one is off the bottom
+    if ((s0.y < -this.offMargin && s1.y > h + this.offMargin) || (s0.y > h + this.offMargin && s1.y < -this.offMargin)) {
+      return true;
+    }
+
+    // Both endpoints are on-screen, but midpoint shoots far off-screen (e.g. 1/x^2)
+    if (!this.isOffScreen(s0.y, h) && !this.isOffScreen(s1.y, h) && this.isOffScreen(sm.y, h)) {
+      return true;
+    }
+
+    // Sign flip check (odd-degree poles like 1/x, tan(x), Gamma(x))
     if ((y0 > 0 && y1 < 0) || (y0 < 0 && y1 > 0)) {
-      // Numerical derivative at midpoint
       const eps = (x1 - x0) * 0.01;
       const dMid = (this.safeEval(fn, xm + eps) - this.safeEval(fn, xm - eps)) / (2 * eps);
       const secantSlope = (y1 - y0) / (x1 - x0);
 
-      // If secant slope opposite sign to actual derivative, it's a branch cut / asymptote wrap-around!
+      // Branch cut / asymptote wrap-around
       if (Number.isFinite(dMid) && secantSlope * dMid < 0) {
         return true;
       }
 
-      // If midpoint does not lie between y0 and y1 and distance is huge
-      if (dyPx > camera.screenHeight * 0.8) {
+      // Vertical jump across a significant portion of the screen
+      if (dyPx > h * 0.3) {
+        return true;
+      }
+    }
+
+    // Step discontinuity check (e.g. floor, ceil, sign)
+    if (dyPx > 2) {
+      let l = x0;
+      let r = x1;
+      let yL = y0;
+      let yR = y1;
+      for (let i = 0; i < 16; i++) {
+        const m = (l + r) * 0.5;
+        const val = this.safeEval(fn, m);
+        if (!Number.isFinite(val)) return true;
+        if (Math.abs(val - yL) < Math.abs(val - yR)) {
+          l = m;
+          yL = val;
+        } else {
+          r = m;
+          yR = val;
+        }
+      }
+      if (r - l < 1e-5 && Math.abs(yR - yL) > 0.05) {
         return true;
       }
     }
 
     return false;
+  }
+
+  /**
+   * Resolves a discontinuity or asymptote by extending the left branch to offscreen/boundary
+   * and starting the right branch from offscreen/boundary, preventing mid-air cutoffs and false lines.
+   */
+  private resolveDiscontinuity(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    x0: number,
+    y0: number,
+    _s0: Point2D,
+    x1: number,
+    y1: number,
+    s1: Point2D,
+    currentStroke: Point2D[],
+    strokes: Point2D[][]
+  ): void {
+    const h = camera.screenHeight;
+    let low = x0;
+    let high = x1;
+    let isAsymptote = false;
+
+    let leftBestX = x0;
+    let leftBestY = y0;
+    let rightBestX = x1;
+    let rightBestY = y1;
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) * 0.5;
+      const ym = this.safeEval(fn, mid);
+      if (!Number.isFinite(ym)) {
+        isAsymptote = true;
+        break;
+      }
+      const sm = camera.worldToScreen(mid, ym);
+      if (this.isOffScreen(sm.y, h)) {
+        isAsymptote = true;
+        break;
+      }
+
+      if (Math.sign(ym - y0) === 0 || Math.abs(ym - y0) < Math.abs(ym - y1)) {
+        leftBestX = mid;
+        leftBestY = ym;
+        low = mid;
+      } else {
+        rightBestX = mid;
+        rightBestY = ym;
+        high = mid;
+      }
+    }
+
+    if (isAsymptote) {
+      // 1. Trace left branch towards asymptote until it exits the screen
+      this.traceToAsymptote(fn, camera, x0, y0, (x0 + x1) * 0.5, currentStroke);
+      if (currentStroke.length > 0) {
+        strokes.push(currentStroke);
+      }
+
+      // 2. Trace right branch from asymptote starting offscreen towards s1
+      const rightStroke: Point2D[] = [];
+      this.traceFromAsymptote(fn, camera, (x0 + x1) * 0.5, x1, y1, s1, rightStroke);
+      strokes.push(rightStroke);
+    } else {
+      // Finite jump discontinuity (floor, ceil, sign):
+      // Left stroke ends right at left cliff point
+      const sLeft = camera.worldToScreen(leftBestX, leftBestY);
+      currentStroke.push(sLeft);
+      strokes.push(currentStroke);
+
+      // Right stroke begins right at right cliff point and subdivides to s1
+      const rightStroke: Point2D[] = [];
+      const sRight = camera.worldToScreen(rightBestX, rightBestY);
+      rightStroke.push(sRight);
+      this.subdivide(fn, camera, rightBestX, rightBestY, sRight, x1, y1, s1, 0, rightStroke);
+      strokes.push(rightStroke);
+    }
+  }
+
+  private traceToAsymptote(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    xFrom: number,
+    yFrom: number,
+    xTo: number,
+    stroke: Point2D[]
+  ): void {
+    const h = camera.screenHeight;
+    let low = xFrom;
+    let high = xTo;
+    const sign = Math.sign(yFrom);
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) * 0.5;
+      const ym = this.safeEval(fn, mid);
+      if (Number.isFinite(ym) && (sign === 0 || Math.sign(ym) === sign)) {
+        const sm = camera.worldToScreen(mid, ym);
+        stroke.push(sm);
+        low = mid;
+        if (this.isOffScreen(sm.y, h)) {
+          break;
+        }
+      } else {
+        high = mid;
+      }
+    }
+  }
+
+  private traceFromAsymptote(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    xFrom: number,
+    xTo: number,
+    yTo: number,
+    sTo: Point2D,
+    stroke: Point2D[]
+  ): void {
+    const h = camera.screenHeight;
+    let low = xFrom;
+    let high = xTo;
+    const sign = Math.sign(yTo);
+    let bestStart: Point2D | null = null;
+    let bestX = xTo;
+    let bestY = yTo;
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) * 0.5;
+      const ym = this.safeEval(fn, mid);
+      if (Number.isFinite(ym) && (sign === 0 || Math.sign(ym) === sign)) {
+        const sm = camera.worldToScreen(mid, ym);
+        bestStart = sm;
+        bestX = mid;
+        bestY = ym;
+        high = mid;
+        if (this.isOffScreen(sm.y, h)) {
+          break;
+        }
+      } else {
+        low = mid;
+      }
+    }
+
+    if (bestStart) {
+      stroke.push(bestStart);
+      this.subdivide(fn, camera, bestX, bestY, bestStart, xTo, yTo, sTo, 0, stroke);
+    } else {
+      stroke.push(sTo);
+    }
+  }
+
+  private resolveExit(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    x0: number,
+    _y0: number,
+    _s0: Point2D,
+    x1: number,
+    stroke: Point2D[]
+  ): void {
+    const h = camera.screenHeight;
+    let low = x0;
+    let high = x1;
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) * 0.5;
+      const ym = this.safeEval(fn, mid);
+      if (Number.isFinite(ym)) {
+        low = mid;
+        const sm = camera.worldToScreen(mid, ym);
+        stroke.push(sm);
+        if (this.isOffScreen(sm.y, h)) {
+          break;
+        }
+      } else {
+        high = mid;
+      }
+    }
+  }
+
+  private resolveEntry(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    x0: number,
+    x1: number,
+    y1: number,
+    s1: Point2D,
+    stroke: Point2D[]
+  ): void {
+    const h = camera.screenHeight;
+    let low = x0;
+    let high = x1;
+    let bestX = x1;
+    let bestY = y1;
+    let bestS = s1;
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) * 0.5;
+      const ym = this.safeEval(fn, mid);
+      if (Number.isFinite(ym)) {
+        bestX = mid;
+        bestY = ym;
+        bestS = camera.worldToScreen(mid, ym);
+        high = mid;
+        if (this.isOffScreen(bestS.y, h)) {
+          break;
+        }
+      } else {
+        low = mid;
+      }
+    }
+
+    stroke.push(bestS);
+    this.subdivide(fn, camera, bestX, bestY, bestS, x1, y1, s1, 0, stroke);
   }
 
   /**
@@ -245,9 +428,9 @@ export class CurveSampler {
       return;
     }
 
-    // Skip detailed subdivision if points are far off-screen vertically
+    // Skip detailed subdivision if points are far off-screen vertically on the same side
     const h = camera.screenHeight;
-    const offMargin = 120;
+    const offMargin = this.offMargin;
     if ((s0.y < -offMargin && s1.y < -offMargin) || (s0.y > h + offMargin && s1.y > h + offMargin)) {
       const xm = (x0 + x1) * 0.5;
       const ym = this.safeEval(fn, xm);

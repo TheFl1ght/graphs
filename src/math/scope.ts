@@ -209,6 +209,9 @@ function gamma(z: number): number {
   ];
 
   if (z < 0.5) {
+    if (z <= 0 && Math.abs(z - Math.round(z)) < 1e-14) {
+      return NaN;
+    }
     return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
   }
 
