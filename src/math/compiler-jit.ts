@@ -393,120 +393,101 @@ export class JITCompiler {
           if (!Number.isFinite(_targetX)) return NaN;
           const _fn = (scope.getFunction("${fnName}") ?? ((val) => NaN));
 
-          function _solve(target) {
-            const eps = 1e-9;
-            const rawRoots = [];
-
-            function _newton(g) {
-              let cur = g;
-              for (let iter = 0; iter < 18; iter++) {
-                const val = _fn(cur) - target;
-                if (Math.abs(val) < eps) return cur;
-                const h = Math.max(1e-6, Math.abs(cur) * 1e-6);
-                const deriv = (_fn(cur + h) - _fn(cur - h)) / (2 * h);
-                if (Math.abs(deriv) < 1e-12 || !Number.isFinite(deriv)) return null;
-                const step = Math.max(-4, Math.min(4, val / deriv));
-                const next = cur - step;
-                if (!Number.isFinite(next) || Math.abs(next) > 1e9) return null;
-                if (Math.abs(next - cur) < eps) return next;
-                cur = next;
-              }
-              if (Math.abs(_fn(cur) - target) < 1e-4) return cur;
-              return null;
-            }
-
-            function _addRoot(r) {
-              if (r === null || !Number.isFinite(r)) return;
-              if (Math.abs(_fn(r) - target) > 1e-4) return;
-              for (let i = 0; i < rawRoots.length; i++) {
-                if (Math.abs(rawRoots[i] - r) < 0.05) return;
-              }
-              rawRoots.push(r);
-            }
-
-            const initialGuesses = [
-              target,
-              target * 0.8,
-              target * 1.2,
-              target * 0.5,
-              target * 1.5,
-              target * 2,
-              0,
-              target > 0 ? 1 : -1,
-              10,
-              -10
-            ];
-
-            for (let i = 0; i < initialGuesses.length; i++) {
-              _addRoot(_newton(initialGuesses[i]));
-            }
-
-            if (rawRoots.length > 0) {
-              const r0 = rawRoots[0];
-              const perturbations = [r0 + 1, r0 - 1, r0 + 2.5, r0 - 2.5];
-              for (let i = 0; i < perturbations.length; i++) {
-                _addRoot(_newton(perturbations[i]));
-                if (rawRoots.length > 2) break;
-              }
-            }
-
-            // Fallback bracket search if no root found yet
-            if (rawRoots.length === 0) {
-              let prevX = 0;
-              let prevVal = _fn(0) - target;
-              for (let step = 1; step <= 100; step += 2) {
-                const val = _fn(step) - target;
-                if (prevVal * val <= 0) {
-                  let a = prevX, b = step;
-                  for (let k = 0; k < 40; k++) {
-                    const mid = (a + b) * 0.5;
-                    const vMid = _fn(mid) - target;
-                    if (Math.abs(vMid) < eps || (b - a) < eps) {
-                      _addRoot(mid);
-                      break;
-                    }
-                    if (prevVal * vMid <= 0) {
-                      b = mid;
-                    } else {
-                      a = mid;
-                      prevVal = vMid;
-                    }
+          // Fast cached tabulation solver for inverse functions
+          if (!scope._invCache) scope._invCache = new Map();
+          let _solver = scope._invCache.get("${fnName}");
+          if (!_solver || _solver.fn !== _fn) {
+            _solver = {
+              fn: _fn,
+              tableY: [],
+              tableX: [],
+              minY: -80,
+              maxY: 80,
+              step: 0.25,
+              build() {
+                const step = this.step;
+                for (let y = this.minY; y <= this.maxY; y += step) {
+                  const x = this.fn(y);
+                  if (Number.isFinite(x)) {
+                    this.tableY.push(y);
+                    this.tableX.push(x);
                   }
-                  break;
                 }
-                prevX = step;
-                prevVal = val;
+              },
+              solve(target) {
+                if (this.tableY.length === 0) this.build();
+                const n = this.tableY.length;
+                if (n < 2) return NaN;
+
+                if ((target < this.tableX[0] || target > this.tableX[n - 1]) && this.maxY < 1000) {
+                  const oldMax = this.maxY;
+                  const oldMin = this.minY;
+                  this.maxY += 80;
+                  this.minY -= 80;
+                  for (let y = oldMax + this.step; y <= this.maxY; y += this.step) {
+                    const x = this.fn(y);
+                    if (Number.isFinite(x)) { this.tableY.push(y); this.tableX.push(x); }
+                  }
+                  for (let y = oldMin - this.step; y >= this.minY; y -= this.step) {
+                    const x = this.fn(y);
+                    if (Number.isFinite(x)) { this.tableY.unshift(y); this.tableX.unshift(x); }
+                  }
+                }
+
+                const crossings = [];
+                const len = this.tableY.length;
+                for (let i = 0; i < len - 1; i++) {
+                  const x0 = this.tableX[i];
+                  const x1 = this.tableX[i + 1];
+                  const y0 = this.tableY[i];
+                  const y1 = this.tableY[i + 1];
+
+                  if (Math.abs(y1 - y0) > 0.6) continue;
+
+                  if ((x0 <= target && target <= x1) || (x1 <= target && target <= x0)) {
+                    const denom = x1 - x0;
+                    const t = Math.abs(denom) > 1e-12 ? (target - x0) / denom : 0.5;
+                    crossings.push(y0 + t * (y1 - y0));
+                  }
+                }
+
+                if (crossings.length === 0) return NaN;
+
+                const pos = [];
+                const neg = [];
+                for (let i = 0; i < crossings.length; i++) {
+                  if (crossings[i] > 0.05) pos.push(crossings[i]);
+                  else if (crossings[i] < -0.05) neg.push(crossings[i]);
+                }
+
+                if (pos.length > 1 || neg.length > 1) {
+                  return NaN; // Non-injective on branch!
+                }
+
+                if (pos.length === 1 && neg.length === 1) {
+                  if (Math.abs(pos[0] + neg[0]) > 0.25) return NaN;
+                  return target >= 0 ? pos[0] : neg[0];
+                }
+
+                if (crossings.length > 2) return NaN;
+
+                let cur = crossings[0];
+                const h = 1e-5;
+                const val = this.fn(cur) - target;
+                const deriv = (this.fn(cur + h) - this.fn(cur - h)) / (2 * h);
+                if (Math.abs(deriv) > 1e-10) {
+                  const next = cur - val / deriv;
+                  if (Number.isFinite(next) && Math.abs(next - cur) < 0.25) {
+                    cur = next;
+                  }
+                }
+                return cur;
               }
-            }
-
-            if (rawRoots.length === 0) return NaN;
-            if (rawRoots.length > 2) return NaN;
-
-            const pos = [];
-            const neg = [];
-            for (let i = 0; i < rawRoots.length; i++) {
-              if (rawRoots[i] > 0.05) pos.push(rawRoots[i]);
-              else if (rawRoots[i] < -0.05) neg.push(rawRoots[i]);
-            }
-
-            if (pos.length > 1 || neg.length > 1) {
-              return NaN; // Non-injective on the branch!
-            }
-
-            let res = rawRoots[0];
-            if (pos.length === 1 && neg.length === 1) {
-              if (Math.abs(pos[0] + neg[0]) > 0.1) return NaN; // Non-symmetric roots
-              res = target >= 0 ? pos[0] : neg[0];
-            }
-
-            if (target >= 0 && res < 0 && Math.abs(_fn(-res) - target) < 1e-4) {
-              res = -res;
-            }
-
-            return res;
+            };
+            scope._invCache.set("${fnName}", _solver);
           }
 
-          return _solve(_targetX);
+          return _solver.solve(_targetX);
         })(${argJs})`;
       }
 

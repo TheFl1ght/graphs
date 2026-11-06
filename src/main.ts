@@ -349,6 +349,11 @@ class App {
   private redoStack: HistorySnapshot[] = [];
   private historyDebounceTimer: any = null;
   private lastSavedSnapshotJson: string = '';
+  private isDirty: boolean = true;
+
+  public requestRender(): void {
+    this.isDirty = true;
+  }
 
   constructor() {
     this.canvas = document.getElementById('graph-canvas') as HTMLCanvasElement;
@@ -521,21 +526,25 @@ class App {
 
       const zoomFactor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       this.camera.zoomAt(sx, sy, zoomFactor);
+      this.isDirty = true;
     }, { passive: false });
 
     // Overlay control buttons
     document.getElementById('zoom-in')?.addEventListener('click', () => {
       this.camera.zoomAt(this.camera.screenWidth / 2, this.camera.screenHeight / 2, 1.25);
+      this.isDirty = true;
     });
 
     document.getElementById('zoom-out')?.addEventListener('click', () => {
       this.camera.zoomAt(this.camera.screenWidth / 2, this.camera.screenHeight / 2, 1 / 1.25);
+      this.isDirty = true;
     });
 
     document.getElementById('reset-view')?.addEventListener('click', () => {
       this.camera.centerX = 0;
       this.camera.centerY = 0;
       this.camera.zoom = 50;
+      this.isDirty = true;
     });
   }
 
@@ -769,6 +778,7 @@ class App {
   }
 
   private renderExpressionList(): void {
+    this.isDirty = true;
     this.exprListEl.innerHTML = '';
 
     this.exprManager.entries.forEach((entry, idx) => {
@@ -3341,6 +3351,7 @@ class App {
       rangeInput.addEventListener('input', () => {
         const val = parseFloat(rangeInput.value);
         this.exprManager.setVariableValue(entry.varName!, val);
+        this.isDirty = true;
 
         if (mf) {
           const formatted = Number.isInteger(val) ? val.toString() : val.toFixed(2);
@@ -3841,9 +3852,12 @@ class App {
 
   private startRenderLoop(): void {
     const loop = () => {
-      this.camera.updateInertia();
-      const items = this.exprManager.getPlottableItems();
-      this.renderer.render(this.camera, items);
+      const moving = this.camera.updateInertia();
+      if (moving || this.camera.isDragging || this.isDirty) {
+        this.isDirty = false;
+        const items = this.exprManager.getPlottableItems();
+        this.renderer.render(this.camera, items);
+      }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
