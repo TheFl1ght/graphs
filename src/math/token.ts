@@ -11,6 +11,14 @@ export enum TokenType {
   RParen = 'RParen',       // )
   Comma = 'Comma',         // ,
   Exclamation = 'Exclamation', // !
+  LessThan = 'LessThan',                 // <
+  LessThanOrEqual = 'LessThanOrEqual',   // <=
+  GreaterThan = 'GreaterThan',           // >
+  GreaterThanOrEqual = 'GreaterThanOrEqual', // >=
+  DoubleEquals = 'DoubleEquals',         // ==
+  NotEquals = 'NotEquals',               // !=
+  And = 'And',                           // &&
+  Or = 'Or',                             // ||
   EOF = 'EOF'
 }
 

@@ -81,6 +81,10 @@ export class GLSLCompiler {
         return GLSLCompiler.toGLSL(node.value);
       }
 
+      case 'Restriction': {
+        return `((${GLSLCompiler.toGLSL(node.condition)}) ? (${GLSLCompiler.toGLSL(node.expr)}) : (0.0 / 0.0))`;
+      }
+
       default:
         throw new Error(`Unsupported GLSL node type: ${(node as any).type}`);
     }

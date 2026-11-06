@@ -58,8 +58,58 @@ export class Lexer {
           this.pos++;
           break;
         case '=':
-          tokens.push({ type: TokenType.Equals, value: '=', position: startPos });
-          this.pos++;
+          if (this.peek(1) === '=') {
+            tokens.push({ type: TokenType.DoubleEquals, value: '==', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.Equals, value: '=', position: startPos });
+            this.pos++;
+          }
+          break;
+        case '<':
+          if (this.peek(1) === '=') {
+            tokens.push({ type: TokenType.LessThanOrEqual, value: '<=', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.LessThan, value: '<', position: startPos });
+            this.pos++;
+          }
+          break;
+        case '>':
+          if (this.peek(1) === '=') {
+            tokens.push({ type: TokenType.GreaterThanOrEqual, value: '>=', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.GreaterThan, value: '>', position: startPos });
+            this.pos++;
+          }
+          break;
+        case '!':
+          if (this.peek(1) === '=') {
+            tokens.push({ type: TokenType.NotEquals, value: '!=', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.Exclamation, value: '!', position: startPos });
+            this.pos++;
+          }
+          break;
+        case '&':
+          if (this.peek(1) === '&') {
+            tokens.push({ type: TokenType.And, value: '&&', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.And, value: '&&', position: startPos });
+            this.pos++;
+          }
+          break;
+        case '|':
+          if (this.peek(1) === '|') {
+            tokens.push({ type: TokenType.Or, value: '||', position: startPos });
+            this.pos += 2;
+          } else {
+            tokens.push({ type: TokenType.Or, value: '||', position: startPos });
+            this.pos++;
+          }
           break;
         case '(':
         case '{':
@@ -73,10 +123,6 @@ export class Lexer {
           break;
         case ',':
           tokens.push({ type: TokenType.Comma, value: ',', position: startPos });
-          this.pos++;
-          break;
-        case '!':
-          tokens.push({ type: TokenType.Exclamation, value: '!', position: startPos });
           this.pos++;
           break;
         default:
@@ -132,7 +178,7 @@ export class Lexer {
     'log10', 'log2', 'log', 'exp', 'abs', 'sgn', 'sign',
     'floor', 'ceil', 'round', 'min', 'max',
     'ln', 'gamma', 'Gamma',
-    'sum', 'prod', 'derivative', 'integral', 'inverse', 'factorial', 'fact',
+    'sum', 'prod', 'derivative', 'integral', 'inverse', 'restriction', 'factorial', 'fact',
     'matrix', 'det', 'inv', 'transpose', 'dot', 'norm'
   ];
 

@@ -10,6 +10,7 @@ import {
   VariableDeclNode,
   FunctionDeclNode,
   EquationNode,
+  RestrictionNode,
   SumNode,
   ProductNode,
   DerivativeNode,
@@ -166,11 +167,63 @@ export class Parser {
       }
 
       this.advance(); // consume operator
+
+      // Comparison operators (<, <=, >, >=) with chained comparison support (e.g. 0 < x < 5)
+      if (
+        token.type === TokenType.LessThan ||
+        token.type === TokenType.LessThanOrEqual ||
+        token.type === TokenType.GreaterThan ||
+        token.type === TokenType.GreaterThanOrEqual
+      ) {
+        let mid = this.parseBinary(prec + 1);
+        const op1 = token.value as '<' | '<=' | '>' | '>=';
+
+        const isNextComparison = () => {
+          const t = this.peek().type;
+          return (
+            t === TokenType.LessThan ||
+            t === TokenType.LessThanOrEqual ||
+            t === TokenType.GreaterThan ||
+            t === TokenType.GreaterThanOrEqual
+          );
+        };
+
+        if (isNextComparison()) {
+          const comparisons: ASTNode[] = [
+            { type: 'BinaryOp', op: op1, left, right: mid }
+          ];
+
+          while (isNextComparison()) {
+            const nextTok = this.advance();
+            const nextOp = nextTok.value as '<' | '<=' | '>' | '>=';
+            const nextRight = this.parseBinary(prec + 1);
+            comparisons.push({ type: 'BinaryOp', op: nextOp, left: mid, right: nextRight });
+            mid = nextRight;
+          }
+
+          left = comparisons.reduce((acc, curr) => ({
+            type: 'BinaryOp',
+            op: '&&',
+            left: acc,
+            right: curr
+          }));
+          continue;
+        }
+
+        left = {
+          type: 'BinaryOp',
+          op: op1,
+          left,
+          right: mid
+        };
+        continue;
+      }
+
       const isRightAssoc = token.type === TokenType.Caret;
       const nextMinPrec = isRightAssoc ? prec : prec + 1;
       const right = this.parseBinary(nextMinPrec);
 
-      const op = token.value as '+' | '-' | '*' | '/' | '^';
+      const op = token.value as '+' | '-' | '*' | '/' | '^' | '==' | '!=' | '&&' | '||';
       left = {
         type: 'BinaryOp',
         op,
@@ -193,6 +246,18 @@ export class Parser {
 
   private getOperatorPrecedence(type: TokenType): number {
     switch (type) {
+      case TokenType.Or:
+        return 2;
+      case TokenType.And:
+        return 4;
+      case TokenType.DoubleEquals:
+      case TokenType.NotEquals:
+        return 6;
+      case TokenType.LessThan:
+      case TokenType.LessThanOrEqual:
+      case TokenType.GreaterThan:
+      case TokenType.GreaterThanOrEqual:
+        return 8;
       case TokenType.Plus:
       case TokenType.Minus:
         return 10;
@@ -353,6 +418,19 @@ export class Parser {
           type: 'Inverse',
           name: fnName,
           argument
+        };
+        return node;
+      }
+
+      if (name === 'restriction' && this.match(TokenType.LParen)) {
+        const expr = this.parseExpression();
+        this.consume(TokenType.Comma, "Expected ',' after expression in restriction(expr, condition)");
+        const condition = this.parseExpression();
+        this.consume(TokenType.RParen, "Expected ')' after condition in restriction(expr, condition)");
+        const node: RestrictionNode = {
+          type: 'Restriction',
+          expr,
+          condition
         };
         return node;
       }

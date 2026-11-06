@@ -300,6 +300,9 @@ function findFreeVariables(node: ASTNode, bound: Set<string> = new Set()): Set<s
       walk((n as any).body, nextB);
     } else if (n.type === 'Inverse') {
       walk(n.argument, b);
+    } else if (n.type === 'Restriction') {
+      walk(n.expr, b);
+      walk(n.condition, b);
     }
   };
 

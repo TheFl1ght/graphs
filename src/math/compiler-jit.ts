@@ -129,6 +129,14 @@ export class JITCompiler {
         if (node.op === '^') {
           return `_matrixPow(${left}, ${right})`;
         }
+        if (node.op === '<') return `((${left}) < (${right}))`;
+        if (node.op === '<=') return `((${left}) <= (${right}))`;
+        if (node.op === '>') return `((${left}) > (${right}))`;
+        if (node.op === '>=') return `((${left}) >= (${right}))`;
+        if (node.op === '==') return `((${left}) === (${right}))`;
+        if (node.op === '!=') return `((${left}) !== (${right}))`;
+        if (node.op === '&&') return `(Boolean(${left}) && Boolean(${right}))`;
+        if (node.op === '||') return `(Boolean(${left}) || Boolean(${right}))`;
         return `(${left} ${node.op} ${right})`;
       }
 
@@ -213,6 +221,39 @@ export class JITCompiler {
       case 'Equation': {
         // If left is 'y', right is the function of x
         return JITCompiler.toJsCode(node.right, localParams);
+      }
+
+      case 'Restriction': {
+        const exprJs = JITCompiler.toJsCode(node.expr, localParams);
+        const condInnerParams = new Set(localParams);
+        condInnerParams.add('x');
+        condInnerParams.add('y');
+        const condJs = JITCompiler.toJsCode(node.condition, condInnerParams);
+
+        if (localParams.has('x') && !localParams.has('y')) {
+          return `((() => {
+            const _val = (${exprJs});
+            if (typeof _val !== 'number' || Number.isNaN(_val)) return NaN;
+            const y = _val;
+            const _cond = (${condJs});
+            return (Boolean(_cond) && _cond !== 0 && !Number.isNaN(_cond)) ? _val : NaN;
+          })())`;
+        } else if (localParams.has('y') && !localParams.has('x')) {
+          return `((() => {
+            const _val = (${exprJs});
+            if (typeof _val !== 'number' || Number.isNaN(_val)) return NaN;
+            const x = _val;
+            const _cond = (${condJs});
+            return (Boolean(_cond) && _cond !== 0 && !Number.isNaN(_cond)) ? _val : NaN;
+          })())`;
+        } else {
+          return `((() => {
+            const _val = (${exprJs});
+            if (typeof _val !== 'number' || Number.isNaN(_val)) return NaN;
+            const _cond = (${condJs});
+            return (Boolean(_cond) && _cond !== 0 && !Number.isNaN(_cond)) ? _val : NaN;
+          })())`;
+        }
       }
 
       case 'Sum': {
@@ -527,6 +568,8 @@ export class JITCompiler {
         return node.variable === id ? false : JITCompiler.hasIdentifier(node.body, id);
       case 'Inverse':
         return JITCompiler.hasIdentifier(node.argument, id);
+      case 'Restriction':
+        return JITCompiler.hasIdentifier(node.expr, id) || JITCompiler.hasIdentifier(node.condition, id);
       default:
         return false;
     }

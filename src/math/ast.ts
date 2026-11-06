@@ -7,12 +7,19 @@ export type ASTNode =
   | VariableDeclNode
   | FunctionDeclNode
   | EquationNode
+  | RestrictionNode
   | SumNode
   | ProductNode
   | DerivativeNode
   | IntegralNode
   | InverseNode
   | FactorialNode;
+
+export interface RestrictionNode {
+  type: 'Restriction';
+  expr: ASTNode;
+  condition: ASTNode;
+}
 
 export interface InverseNode {
   type: 'Inverse';
@@ -74,7 +81,7 @@ export interface UnaryOpNode {
 
 export interface BinaryOpNode {
   type: 'BinaryOp';
-  op: '+' | '-' | '*' | '/' | '^';
+  op: '+' | '-' | '*' | '/' | '^' | '<' | '<=' | '>' | '>=' | '==' | '!=' | '&&' | '||';
   left: ASTNode;
   right: ASTNode;
 }

@@ -915,7 +915,7 @@ export class ExpressionManager {
             const formulaAst = (ast.left.type === 'Identifier' && ast.left.name === 'x') ? ast.right : ast.left;
             const compiled = JITCompiler.compile(formulaAst, ['y'], this.scope);
             entry.compiledFn = compiled;
-            this.detectMissingParams(entry, formulaAst, new Set(['y']));
+            this.detectMissingParams(entry, formulaAst, new Set(['y', 'x']));
           } else {
             entry.graphOrientation = 'y-of-x';
             const formulaAst = (ast.left.type === 'Identifier' && ast.left.name === 'y') ? ast.right : ast.left;
@@ -1052,6 +1052,15 @@ export class ExpressionManager {
           missing.add(n.name);
         }
         walk(n.argument);
+      } else if (n.type === 'Restriction') {
+        walk(n.expr);
+        const innerBound = new Set(boundParams);
+        if (boundParams.has('x')) innerBound.add('y');
+        if (boundParams.has('y')) innerBound.add('x');
+        const savedBound = boundParams;
+        boundParams = innerBound;
+        walk(n.condition);
+        boundParams = savedBound;
       }
     };
 
@@ -1093,6 +1102,8 @@ export class ExpressionManager {
         return node.variable !== varName && this.hasFreeVariable(node.body, varName);
       case 'Inverse':
         return this.hasFreeVariable(node.argument, varName);
+      case 'Restriction':
+        return this.hasFreeVariable(node.expr, varName) || this.hasFreeVariable(node.condition, varName);
       default:
         return false;
     }

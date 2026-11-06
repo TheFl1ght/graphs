@@ -17,6 +17,28 @@ export function latexToMath(latex: string): string {
   let s = latex.trim();
   if (!s) return '';
 
+  // Extract domain / variable restrictions in braces: {x > 0}, {0 <= x <= 5}, \{y >= 0\}, etc.
+  const restrictionData = extractRestrictions(s);
+  if (restrictionData.conditions.length > 0) {
+    const base = restrictionData.base.trim();
+    const condCombined = restrictionData.conditions
+      .map(c => `(${latexToMath(c)})`)
+      .join(' && ');
+
+    if (!base) {
+      return condCombined;
+    }
+
+    const eqIdx = findTopLevelEquals(base);
+    if (eqIdx !== -1) {
+      const lhs = base.substring(0, eqIdx).trim();
+      const rhs = base.substring(eqIdx + 1).trim();
+      return `${latexToMath(lhs)} = restriction(${latexToMath(rhs)}, ${condCombined})`;
+    } else {
+      return `restriction(${latexToMath(base)}, ${condCombined})`;
+    }
+  }
+
   // -0.1. Handle matrices before brackets and formatting removal
   s = replaceMatrices(s);
 
@@ -86,6 +108,11 @@ export function latexToMath(latex: string): string {
   // Replace \div with /
   s = s.replace(/\\div/g, '/');
 
+  // Replace inequality symbols
+  s = s.replace(/\\(?:le|leq|leqslant)\b/g, '<=');
+  s = s.replace(/\\(?:ge|geq|geqslant)\b/g, '>=');
+  s = s.replace(/\\(?:ne|neq)\b/g, '!=');
+
   // Handle subscripts: k_{max} -> k_max, x_1 -> x_1, d_{y} -> d_y, \alpha_{0} -> alpha_0
   s = s.replace(/\\?([a-zA-Z]+)_\{([a-zA-Z0-9_]+)\}/g, '$1_$2');
   s = s.replace(/\\?([a-zA-Z]+)_([a-zA-Z0-9])/g, '$1_$2');
@@ -97,9 +124,6 @@ export function latexToMath(latex: string): string {
 
   // Auto-convert single letters directly followed by digits: y1 -> y_1, x2 -> x_2, a1 -> a_1
   s = s.replace(/(?<![a-zA-Z\\_])([a-zA-Z])(?:\s*|\\cdot\s*)([0-9]+)(?![a-zA-Z])/g, '$1_$2');
-
-  // Handle domain restrictions in braces at the end if any: {y_1 - d_y \le y ...}, { |x| \le \frac{\pi}{2} }
-  s = stripTrailingDomainRestriction(s);
 
   // Handle \sqrt[n]{x} and \sqrt{x}
   s = replaceSquareRoots(s);
@@ -835,35 +859,130 @@ function extractLimit(str: string, pos: number): { limit: string; nextPos: numbe
   return { limit: '', nextPos: i + 1 };
 }
 
-function stripTrailingDomainRestriction(str: string): string {
-  let s = str.trimEnd();
-  if (!s.endsWith('}') && !s.endsWith('\\}')) {
-    return s;
+function extractRestrictions(str: string): { base: string; conditions: string[] } {
+  let s = str.trim();
+  // Strip empty placeholders and unclosed right delimiter
+  s = s.replace(/\\placeholder\{[^}]*\}/g, '');
+  s = s.replace(/\\placeholder/g, '');
+  s = s.replace(/\\right\./g, '');
+  s = s.replace(/\\left\./g, '');
+  s = s.replace(/\\left\s*\\{/g, '\\{');
+  s = s.replace(/\\right\s*\\}/g, '\\}');
+  s = s.replace(/\\left\s*\{/g, '{');
+  s = s.replace(/\\right\s*\}/g, '}');
+
+  const conditions: string[] = [];
+
+  // Repeatedly extract trailing {condition} or \{condition\}
+  let changed = true;
+  while (changed) {
+    changed = false;
+    s = s.trimEnd();
+
+    if (!s.endsWith('}')) {
+      break;
+    }
+
+    const hasBackslashBeforeClose = s.length >= 2 && s[s.length - 2] === '\\';
+    const endOffset = hasBackslashBeforeClose ? 2 : 1;
+
+    let depth = 0;
+    let i = s.length - 1; // start scanning backwards from the '}'
+    while (i >= 0) {
+      if (s[i] === '}') {
+        depth++;
+      } else if (s[i] === '{') {
+        depth--;
+        if (depth === 0) {
+          let braceStart = i;
+          if (braceStart > 0 && s[braceStart - 1] === '\\') {
+            braceStart--;
+          }
+          const inner = s.substring(i + 1, s.length - endOffset).trim();
+          if (/\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq)\b|<=|>=|<|>|!=|==/.test(inner)) {
+            const parts = splitConditionsByComma(inner);
+            conditions.unshift(...parts);
+            s = s.substring(0, braceStart).trimEnd();
+            changed = true;
+          }
+          break;
+        }
+      }
+      i--;
+    }
   }
 
-  let depth = 0;
-  let i = s.length - 1;
-  while (i >= 0) {
-    if (s[i] === '}') {
-      depth++;
-    } else if (s[i] === '{') {
-      depth--;
-      if (depth === 0) {
-        let braceStart = i;
-        if (braceStart > 0 && s[braceStart - 1] === '\\') {
-          braceStart--;
+  // Also check leading
+  changed = true;
+  while (changed) {
+    changed = false;
+    s = s.trimStart();
+    const hasBackslashBeforeOpen = s.startsWith('\\{');
+    if (!s.startsWith('{') && !hasBackslashBeforeOpen) {
+      break;
+    }
+
+    const startOffset = hasBackslashBeforeOpen ? 1 : 0;
+    let depth = 0;
+    for (let i = startOffset; i < s.length; i++) {
+      if (s[i] === '{') {
+        depth++;
+      } else if (s[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          const hasBackslashBeforeClose = i > 0 && s[i - 1] === '\\';
+          const inner = s.substring(startOffset + 1, hasBackslashBeforeClose ? i - 1 : i).trim();
+          if (/\\(?:le|leq|leqslant|ge|geq|geqslant|ne|neq)\b|<=|>=|<|>|!=|==/.test(inner)) {
+            const parts = splitConditionsByComma(inner);
+            conditions.push(...parts);
+            s = s.substring(i + 1).trimStart();
+            changed = true;
+          }
+          break;
         }
-        const inner = s.substring(i + 1, s.length - (s.endsWith('\\}') ? 2 : 1)).trim();
-        if (/\\le|\\ge|<=|>=|<|>/.test(inner)) {
-          return s.substring(0, braceStart).trim();
-        }
-        break;
       }
     }
-    i--;
   }
 
-  return s;
+  return { base: s, conditions };
+}
+
+function splitConditionsByComma(str: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '(' || ch === '{' || ch === '[') depth++;
+    else if (ch === ')' || ch === '}' || ch === ']') depth--;
+    else if (ch === ',' && depth === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function findTopLevelEquals(str: string): number {
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '(' || ch === '{' || ch === '[') {
+      depth++;
+    } else if (ch === ')' || ch === '}' || ch === ']') {
+      if (depth > 0) depth--;
+    } else if (depth === 0 && ch === '=') {
+      const prev = i > 0 ? str[i - 1] : '';
+      const next = i + 1 < str.length ? str[i + 1] : '';
+      if (prev !== '<' && prev !== '>' && prev !== '!' && prev !== '=' && next !== '=') {
+        return i;
+      }
+    }
+  }
+  return -1;
 }
 
 function extractDifferential(rest: string): { wrt: string; rawBody: string; diffEnd: number; hasDiff: boolean } {
