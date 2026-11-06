@@ -12,6 +12,7 @@ export interface CurveGraphItem {
   fn: CompiledFunction;
   visible: boolean;
   lineStyle?: LineStyle;
+  orientation?: 'y-of-x' | 'x-of-y';
 }
 
 export interface PointsGraphItem {
@@ -111,17 +112,21 @@ export class GraphRenderer {
           ctx.setLineDash([]);
         }
 
-        const strokes: Point2D[][] = this.sampler.sample(item.fn, camera);
-        const maxCoord = height * 4;
-        const minCoord = -maxCoord;
+        const strokes: Point2D[][] = this.sampler.sample(item.fn, camera, item.orientation);
+        const maxCoordY = height * 4;
+        const minCoordY = -maxCoordY;
+        const maxCoordX = width * 4;
+        const minCoordX = -maxCoordX;
         for (const stroke of strokes) {
           if (stroke.length < 2) continue;
           ctx.beginPath();
-          const startY = Math.max(minCoord, Math.min(maxCoord, stroke[0].y));
-          ctx.moveTo(stroke[0].x, startY);
+          const startX = Math.max(minCoordX, Math.min(maxCoordX, stroke[0].x));
+          const startY = Math.max(minCoordY, Math.min(maxCoordY, stroke[0].y));
+          ctx.moveTo(startX, startY);
           for (let i = 1; i < stroke.length; i++) {
-            const ptY = Math.max(minCoord, Math.min(maxCoord, stroke[i].y));
-            ctx.lineTo(stroke[i].x, ptY);
+            const ptX = Math.max(minCoordX, Math.min(maxCoordX, stroke[i].x));
+            const ptY = Math.max(minCoordY, Math.min(maxCoordY, stroke[i].y));
+            ctx.lineTo(ptX, ptY);
           }
           ctx.stroke();
         }

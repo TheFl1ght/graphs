@@ -112,6 +112,7 @@ export interface ExpressionEntry {
   regressions?: TableRegression[];
   regressionsCollapsed?: boolean;
   missingParams?: string[]; // Undefined variables detected in expression (for slider prompt)
+  graphOrientation?: 'y-of-x' | 'x-of-y';
   error?: string;
 }
 
@@ -775,6 +776,7 @@ export class ExpressionManager {
     for (const entry of this.entries) {
       entry.error = undefined;
       entry.missingParams = undefined;
+      entry.graphOrientation = undefined;
       if (entry.type !== 'variable') {
         entry.value = undefined;
       }
@@ -905,40 +907,62 @@ export class ExpressionManager {
           this.detectMissingParams(entry, ast.body, new Set(ast.params));
         } else if (ast.type === 'Equation') {
           entry.type = 'graph';
-          const compiled = JITCompiler.compile(ast.right, ['x'], this.scope);
-          entry.compiledFn = compiled;
-          this.detectMissingParams(entry, ast.right, new Set(['x', 'y']));
+          const isXOfY = (ast.left.type === 'Identifier' && ast.left.name === 'x') ||
+                         (ast.right.type === 'Identifier' && ast.right.name === 'x' && ast.left.type !== 'Identifier');
+
+          if (isXOfY) {
+            entry.graphOrientation = 'x-of-y';
+            const formulaAst = (ast.left.type === 'Identifier' && ast.left.name === 'x') ? ast.right : ast.left;
+            const compiled = JITCompiler.compile(formulaAst, ['y'], this.scope);
+            entry.compiledFn = compiled;
+            this.detectMissingParams(entry, formulaAst, new Set(['y']));
+          } else {
+            entry.graphOrientation = 'y-of-x';
+            const formulaAst = (ast.left.type === 'Identifier' && ast.left.name === 'y') ? ast.right : ast.left;
+            const compiled = JITCompiler.compile(formulaAst, ['x'], this.scope);
+            entry.compiledFn = compiled;
+            this.detectMissingParams(entry, formulaAst, new Set(['x', 'y']));
+          }
         } else {
           entry.type = 'graph';
-          const compiled = JITCompiler.compile(ast, ['x'], this.scope);
-          entry.compiledFn = compiled;
-          this.detectMissingParams(entry, ast, new Set(['x']));
+          const isYOnly = !this.hasFreeVariable(ast, 'x') && this.hasFreeVariable(ast, 'y');
+          if (isYOnly) {
+            entry.graphOrientation = 'x-of-y';
+            const compiled = JITCompiler.compile(ast, ['y'], this.scope);
+            entry.compiledFn = compiled;
+            this.detectMissingParams(entry, ast, new Set(['y']));
+          } else {
+            entry.graphOrientation = 'y-of-x';
+            const compiled = JITCompiler.compile(ast, ['x'], this.scope);
+            entry.compiledFn = compiled;
+            this.detectMissingParams(entry, ast, new Set(['x']));
 
-          // Standalone numerical evaluation or matrix / vector evaluation
-          if ((!entry.missingParams || entry.missingParams.length === 0) && !this.hasFreeVariable(ast, 'x')) {
-            try {
-              const val = compiled(0);
-              if (typeof val === 'number' && Number.isFinite(val)) {
-                entry.value = val;
-                entry.type = 'evaluation';
-              } else if (isMatrix(val)) {
-                entry.matrixData = val;
-                entry.value = undefined;
-                if (is2DVector(val)) {
-                  entry.vector = { x: val[0][0], y: val[1][0] };
-                  entry.type = 'vector';
+            // Standalone numerical evaluation or matrix / vector evaluation
+            if ((!entry.missingParams || entry.missingParams.length === 0) && !this.hasFreeVariable(ast, 'x')) {
+              try {
+                const val = compiled(0);
+                if (typeof val === 'number' && Number.isFinite(val)) {
+                  entry.value = val;
+                  entry.type = 'evaluation';
+                } else if (isMatrix(val)) {
+                  entry.matrixData = val;
+                  entry.value = undefined;
+                  if (is2DVector(val)) {
+                    entry.vector = { x: val[0][0], y: val[1][0] };
+                    entry.type = 'vector';
+                  } else {
+                    entry.vector = undefined;
+                    entry.type = 'matrix';
+                  }
                 } else {
-                  entry.vector = undefined;
-                  entry.type = 'matrix';
+                  entry.value = undefined;
                 }
-              } else {
+              } catch (_) {
                 entry.value = undefined;
               }
-            } catch (_) {
+            } else {
               entry.value = undefined;
             }
-          } else {
-            entry.value = undefined;
           }
         }
       } catch (err: any) {
@@ -1192,7 +1216,8 @@ export class ExpressionManager {
           color: entry.color,
           fn: entry.compiledFn,
           visible: entry.visible !== false,
-          lineStyle: entry.lineStyle || 'solid'
+          lineStyle: entry.lineStyle || 'solid',
+          orientation: entry.graphOrientation
         });
       }
     }

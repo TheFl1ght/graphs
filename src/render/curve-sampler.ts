@@ -23,8 +23,12 @@ export class CurveSampler {
    */
   public sample(
     fn: CompiledFunction,
-    camera: Camera2D
+    camera: Camera2D,
+    orientation: 'y-of-x' | 'x-of-y' = 'y-of-x'
   ): Point2D[][] {
+    if (orientation === 'x-of-y') {
+      return this.sampleXOfY(fn, camera);
+    }
     const width = camera.screenWidth;
     const coarseStepPx = 4; // Responsive 4px step
     const strokes: Point2D[][] = [];
@@ -480,6 +484,432 @@ export class CurveSampler {
     if (distSq > this.tolerancePx * this.tolerancePx) {
       this.subdivide(fn, camera, x0, y0, s0, xm, ym, sm, depth + 1, stroke);
       this.subdivide(fn, camera, xm, ym, sm, x1, y1, s1, depth + 1, stroke);
+    } else {
+      stroke.push(s1);
+    }
+  }
+
+  public sampleXOfY(
+    fn: CompiledFunction,
+    camera: Camera2D
+  ): Point2D[][] {
+    const height = camera.screenHeight;
+    const coarseStepPx = 4;
+    const strokes: Point2D[][] = [];
+    let currentStroke: Point2D[] = [];
+
+    let prevSy = -coarseStepPx;
+    let prevWorld = camera.screenToWorld(0, prevSy);
+    let prevX = this.safeEval(fn, prevWorld.y);
+    let prevValid = Number.isFinite(prevX);
+    let prevScreen = prevValid ? camera.worldToScreen(prevX, prevWorld.y) : { x: NaN, y: prevSy };
+
+    if (prevValid) {
+      currentStroke.push(prevScreen);
+    }
+
+    for (let sy = 0; sy <= height + coarseStepPx; sy += coarseStepPx) {
+      const currWorld = camera.screenToWorld(0, sy);
+      const currX = this.safeEval(fn, currWorld.y);
+      const currValid = Number.isFinite(currX);
+      const currScreen = currValid ? camera.worldToScreen(currX, currWorld.y) : { x: NaN, y: sy };
+
+      if (!prevValid && !currValid) {
+        // Outside domain
+      } else if (prevValid && !currValid) {
+        this.resolveExitY(fn, camera, prevWorld.y, prevX, prevScreen, currWorld.y, currentStroke);
+        if (currentStroke.length > 0) {
+          strokes.push(currentStroke);
+          currentStroke = [];
+        }
+      } else if (!prevValid && currValid) {
+        const entryStroke: Point2D[] = [];
+        this.resolveEntryY(fn, camera, prevWorld.y, currWorld.y, currX, currScreen, entryStroke);
+        currentStroke = entryStroke;
+      } else {
+        if (this.detectAsymptoteY(fn, prevWorld.y, prevX, prevScreen, currWorld.y, currX, currScreen, camera)) {
+          this.resolveDiscontinuityY(
+            fn,
+            camera,
+            prevWorld.y,
+            prevX,
+            prevScreen,
+            currWorld.y,
+            currX,
+            currScreen,
+            currentStroke,
+            strokes
+          );
+          currentStroke = strokes.pop() ?? [];
+        } else {
+          this.subdivideY(
+            fn,
+            camera,
+            prevWorld.y,
+            prevX,
+            prevScreen,
+            currWorld.y,
+            currX,
+            currScreen,
+            0,
+            currentStroke
+          );
+        }
+      }
+
+      prevSy = sy;
+      prevWorld = currWorld;
+      prevX = currX;
+      prevValid = currValid;
+      prevScreen = currScreen;
+    }
+
+    if (currentStroke.length > 0) {
+      strokes.push(currentStroke);
+    }
+
+    return strokes;
+  }
+
+  private isOffScreenX(sx: number, w: number): boolean {
+    return sx < -this.offMargin || sx > w + this.offMargin;
+  }
+
+  private detectAsymptoteY(
+    fn: CompiledFunction,
+    y0: number,
+    x0: number,
+    s0: Point2D,
+    y1: number,
+    x1: number,
+    s1: Point2D,
+    camera: Camera2D
+  ): boolean {
+    const w = camera.screenWidth;
+    const dxPx = Math.abs(s1.x - s0.x);
+
+    const ym = (y0 + y1) * 0.5;
+    const xm = this.safeEval(fn, ym);
+
+    if (!Number.isFinite(xm)) return true;
+
+    const sm = camera.worldToScreen(xm, ym);
+
+    if ((s0.x < -this.offMargin && s1.x > w + this.offMargin) || (s0.x > w + this.offMargin && s1.x < -this.offMargin)) {
+      return true;
+    }
+
+    if (!this.isOffScreenX(s0.x, w) && !this.isOffScreenX(s1.x, w) && this.isOffScreenX(sm.x, w)) {
+      return true;
+    }
+
+    if ((x0 > 0 && x1 < 0) || (x0 < 0 && x1 > 0)) {
+      const eps = (y1 - y0) * 0.01;
+      const dMid = (this.safeEval(fn, ym + eps) - this.safeEval(fn, ym - eps)) / (2 * eps);
+      const secantSlope = (x1 - x0) / (y1 - y0);
+
+      if (Number.isFinite(dMid) && secantSlope * dMid < 0) {
+        return true;
+      }
+
+      if (dxPx > w * 0.25) {
+        return true;
+      }
+    }
+
+    if (dxPx > 2) {
+      let l = y0;
+      let r = y1;
+      let xL = x0;
+      let xR = x1;
+      for (let i = 0; i < 20; i++) {
+        const m = (l + r) * 0.5;
+        const val = this.safeEval(fn, m);
+        if (!Number.isFinite(val)) return true;
+        if (Math.abs(val - xL) < Math.abs(val - xR)) {
+          l = m;
+          xL = val;
+        } else {
+          r = m;
+          xR = val;
+        }
+      }
+      if (r - l < 1e-5 && Math.abs(xR - xL) > 0.05) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private resolveDiscontinuityY(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    y0: number,
+    x0: number,
+    _s0: Point2D,
+    y1: number,
+    x1: number,
+    s1: Point2D,
+    currentStroke: Point2D[],
+    strokes: Point2D[][]
+  ): void {
+    const w = camera.screenWidth;
+    let isAsymptote = false;
+
+    let l = y0;
+    let r = y1;
+    let xL = x0;
+    let xR = x1;
+    let ya = (y0 + y1) * 0.5;
+
+    for (let i = 0; i < 35; i++) {
+      const m = (l + r) * 0.5;
+      const xm = this.safeEval(fn, m);
+      if (!Number.isFinite(xm)) {
+        ya = m;
+        isAsymptote = true;
+        break;
+      }
+      const sm = camera.worldToScreen(xm, m);
+      if (this.isOffScreenX(sm.x, w)) {
+        isAsymptote = true;
+      }
+
+      if ((x0 > 0 && x1 < 0) || (x0 < 0 && x1 > 0)) {
+        if (Math.sign(xm) === Math.sign(x0)) {
+          l = m;
+          xL = xm;
+        } else {
+          r = m;
+          xR = xm;
+        }
+      } else {
+        if (Math.abs(xm - xL) <= Math.abs(xm - xR)) {
+          l = m;
+          xL = xm;
+        } else {
+          r = m;
+          xR = xm;
+        }
+      }
+      ya = (l + r) * 0.5;
+    }
+
+    if (!isAsymptote && r - l < 1e-4 && Math.abs(xR - xL) > 0.05) {
+      const sLeft = camera.worldToScreen(xL, l);
+      currentStroke.push(sLeft);
+      strokes.push(currentStroke);
+
+      const rightStroke: Point2D[] = [];
+      const sRight = camera.worldToScreen(xR, r);
+      rightStroke.push(sRight);
+      this.subdivideY(fn, camera, r, xR, sRight, y1, x1, s1, 0, rightStroke);
+      strokes.push(rightStroke);
+      return;
+    }
+
+    let lowL = y0;
+    let highL = ya;
+    let reachedOffscreenL = false;
+    for (let i = 0; i < 40; i++) {
+      const m = (lowL + highL) * 0.5;
+      const xm = this.safeEval(fn, m);
+      if (Number.isFinite(xm) && (Math.sign(x0) === 0 || Math.sign(xm) === Math.sign(x0))) {
+        const sm = camera.worldToScreen(xm, m);
+        currentStroke.push(sm);
+        lowL = m;
+        if (this.isOffScreenX(sm.x, w)) {
+          reachedOffscreenL = true;
+          break;
+        }
+      } else {
+        highL = m;
+      }
+    }
+    if (!reachedOffscreenL) {
+      const sAsymY = camera.worldToScreen(0, ya).y;
+      const offX = (x0 >= 0 ? w + this.offMargin + 20 : -this.offMargin - 20);
+      currentStroke.push({ x: offX, y: sAsymY });
+    }
+    if (currentStroke.length > 0) {
+      strokes.push(currentStroke);
+    }
+
+    let bestStart: Point2D | null = null;
+    let bestY = y1;
+    let bestX = x1;
+    let lowR = ya;
+    let highR = y1;
+    let reachedOffscreenR = false;
+    for (let i = 0; i < 40; i++) {
+      const m = (lowR + highR) * 0.5;
+      const xm = this.safeEval(fn, m);
+      if (Number.isFinite(xm) && (Math.sign(x1) === 0 || Math.sign(xm) === Math.sign(x1))) {
+        const sm = camera.worldToScreen(xm, m);
+        bestStart = sm;
+        bestY = m;
+        bestX = xm;
+        highR = m;
+        if (this.isOffScreenX(sm.x, w)) {
+          reachedOffscreenR = true;
+          break;
+        }
+      } else {
+        lowR = m;
+      }
+    }
+
+    const rightStroke: Point2D[] = [];
+    if (!reachedOffscreenR) {
+      const sAsymY = camera.worldToScreen(0, ya).y;
+      const offX = (x1 >= 0 ? w + this.offMargin + 20 : -this.offMargin - 20);
+      rightStroke.push({ x: offX, y: sAsymY });
+    }
+    if (bestStart) {
+      rightStroke.push(bestStart);
+      this.subdivideY(fn, camera, bestY, bestX, bestStart, y1, x1, s1, 0, rightStroke);
+    } else {
+      rightStroke.push(s1);
+    }
+    strokes.push(rightStroke);
+  }
+
+  private resolveExitY(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    y0: number,
+    _x0: number,
+    _s0: Point2D,
+    y1: number,
+    stroke: Point2D[]
+  ): void {
+    const w = camera.screenWidth;
+    let low = y0;
+    let high = y1;
+    let reachedOff = false;
+
+    for (let i = 0; i < 40; i++) {
+      const mid = (low + high) * 0.5;
+      const xm = this.safeEval(fn, mid);
+      if (Number.isFinite(xm)) {
+        low = mid;
+        const sm = camera.worldToScreen(xm, mid);
+        stroke.push(sm);
+        if (this.isOffScreenX(sm.x, w)) {
+          reachedOff = true;
+          break;
+        }
+      } else {
+        high = mid;
+      }
+    }
+
+    if (!reachedOff && stroke.length > 0) {
+      const lastPt = stroke[stroke.length - 1];
+      const offX = lastPt.x < w * 0.5 ? -this.offMargin - 20 : w + this.offMargin + 20;
+      stroke.push({ x: offX, y: camera.worldToScreen(0, low).y });
+    }
+  }
+
+  private resolveEntryY(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    y0: number,
+    y1: number,
+    x1: number,
+    s1: Point2D,
+    stroke: Point2D[]
+  ): void {
+    const w = camera.screenWidth;
+    let low = y0;
+    let high = y1;
+    let bestY = y1;
+    let bestX = x1;
+    let bestS = s1;
+    let reachedOff = false;
+
+    for (let i = 0; i < 40; i++) {
+      const mid = (low + high) * 0.5;
+      const xm = this.safeEval(fn, mid);
+      if (Number.isFinite(xm)) {
+        bestY = mid;
+        bestX = xm;
+        bestS = camera.worldToScreen(xm, mid);
+        high = mid;
+        if (this.isOffScreenX(bestS.x, w)) {
+          reachedOff = true;
+          break;
+        }
+      } else {
+        low = mid;
+      }
+    }
+
+    if (!reachedOff) {
+      const offX = s1.x < w * 0.5 ? -this.offMargin - 20 : w + this.offMargin + 20;
+      stroke.push({ x: offX, y: camera.worldToScreen(0, high).y });
+    }
+    stroke.push(bestS);
+    this.subdivideY(fn, camera, bestY, bestX, bestS, y1, x1, s1, 0, stroke);
+  }
+
+  private subdivideY(
+    fn: CompiledFunction,
+    camera: Camera2D,
+    y0: number,
+    x0: number,
+    s0: Point2D,
+    y1: number,
+    x1: number,
+    s1: Point2D,
+    depth: number,
+    stroke: Point2D[]
+  ): void {
+    if (depth >= this.maxDepth) {
+      stroke.push(s1);
+      return;
+    }
+
+    const w = camera.screenWidth;
+    const offMargin = this.offMargin;
+    if ((s0.x < -offMargin && s1.x < -offMargin) || (s0.x > w + offMargin && s1.x > w + offMargin)) {
+      const ym = (y0 + y1) * 0.5;
+      const xm = this.safeEval(fn, ym);
+      if (!Number.isFinite(xm)) return;
+      const sm = camera.worldToScreen(xm, ym);
+      if ((sm.x < -offMargin && s0.x < -offMargin) || (sm.x > w + offMargin && s0.x > w + offMargin)) {
+        stroke.push(s1);
+        return;
+      }
+    }
+
+    const ym = (y0 + y1) * 0.5;
+    const xm = this.safeEval(fn, ym);
+
+    if (!Number.isFinite(xm)) {
+      return;
+    }
+
+    const sm = camera.worldToScreen(xm, ym);
+
+    const chordDx = s1.x - s0.x;
+    const chordDy = s1.y - s0.y;
+    const chordLenSq = chordDx * chordDx + chordDy * chordDy;
+
+    let distSq = 0;
+    if (chordLenSq > 1e-6) {
+      const cross = Math.abs(chordDy * sm.x - chordDx * sm.y + s1.x * s0.y - s1.y * s0.x);
+      distSq = (cross * cross) / chordLenSq;
+    } else {
+      const dx = sm.x - s0.x;
+      const dy = sm.y - s0.y;
+      distSq = dx * dx + dy * dy;
+    }
+
+    if (distSq > this.tolerancePx * this.tolerancePx) {
+      this.subdivideY(fn, camera, y0, x0, s0, ym, xm, sm, depth + 1, stroke);
+      this.subdivideY(fn, camera, ym, xm, sm, y1, x1, s1, depth + 1, stroke);
     } else {
       stroke.push(s1);
     }

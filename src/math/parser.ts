@@ -93,11 +93,11 @@ export class Parser {
         const expr = this.parseExpression();
         this.consume(TokenType.EOF, 'Expected end of input');
 
-        if (varName === 'y') {
-          // Standard equation y = f(x)
+        if (varName === 'y' || varName === 'x') {
+          // Standard equation y = f(x) or x = f(y)
           const eqNode: EquationNode = {
             type: 'Equation',
-            left: { type: 'Identifier', name: 'y' },
+            left: { type: 'Identifier', name: varName },
             right: expr
           };
           return eqNode;
