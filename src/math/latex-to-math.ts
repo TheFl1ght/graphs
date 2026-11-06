@@ -154,7 +154,7 @@ export function latexToMath(latex: string): string {
 
   // Handle function calls without parentheses: sin x -> sin(x), cos x -> cos(x), ln x -> ln(x), cot x -> cot(x)
   // Matches function name followed by space or identifier/number without '('
-  const fnRegex = /\b(sin|cos|tan|cot|atan|asin|acos|acot|arcsin|arccos|arctan|arccot|sinh|cosh|tanh|ln|log|exp|sqrt|det|inv|transpose|norm)\s*([a-zA-Z0-9_]+)(?!\()/g;
+  const fnRegex = /\b(sin|cos|tan|cot|atan|asin|acos|acot|arcsin|arccos|arctan|arccot|sinh|cosh|tanh|ln|log|exp|sqrt|det|inv|transpose|norm)(?![a-zA-Z])\s*([a-zA-Z0-9_]+)(?!\()/g;
   s = s.replace(fnRegex, '$1($2)');
 
   // Clean superscripts: x^{2+a} -> x^(2+a)
@@ -552,6 +552,22 @@ function replaceLagrangePrimes(str: string): string {
       }
       body = trimmedRest.slice(1, i - 1).trim();
       endIndex = afterIndex + leadingSpaces + i;
+    } else if (trimmedRest.startsWith('{')) {
+      let depth = 0, i = 0;
+      for (; i < trimmedRest.length; i++) {
+        if (trimmedRest[i] === '{') depth++;
+        else if (trimmedRest[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+      }
+      body = trimmedRest.slice(1, i - 1).trim();
+      endIndex = afterIndex + leadingSpaces + i;
+    } else if (trimmedRest.startsWith('[')) {
+      let depth = 0, i = 0;
+      for (; i < trimmedRest.length; i++) {
+        if (trimmedRest[i] === '[') depth++;
+        else if (trimmedRest[i] === ']') { depth--; if (depth === 0) { i++; break; } }
+      }
+      body = trimmedRest.slice(1, i - 1).trim();
+      endIndex = afterIndex + leadingSpaces + i;
     }
 
     const fnName = rawFnName.replace(/^\\/, '');
@@ -597,6 +613,22 @@ function replaceInverseFunctions(str: string): string {
       for (; i < trimmedRest.length; i++) {
         if (trimmedRest[i] === '(') depth++;
         else if (trimmedRest[i] === ')') { depth--; if (depth === 0) { i++; break; } }
+      }
+      body = trimmedRest.slice(1, i - 1).trim();
+      endIndex = afterIndex + leadingSpaces + i;
+    } else if (trimmedRest.startsWith('{')) {
+      let depth = 0, i = 0;
+      for (; i < trimmedRest.length; i++) {
+        if (trimmedRest[i] === '{') depth++;
+        else if (trimmedRest[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+      }
+      body = trimmedRest.slice(1, i - 1).trim();
+      endIndex = afterIndex + leadingSpaces + i;
+    } else if (trimmedRest.startsWith('[')) {
+      let depth = 0, i = 0;
+      for (; i < trimmedRest.length; i++) {
+        if (trimmedRest[i] === '[') depth++;
+        else if (trimmedRest[i] === ']') { depth--; if (depth === 0) { i++; break; } }
       }
       body = trimmedRest.slice(1, i - 1).trim();
       endIndex = afterIndex + leadingSpaces + i;
