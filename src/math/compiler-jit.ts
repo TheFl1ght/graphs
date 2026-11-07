@@ -412,6 +412,13 @@ export class JITCompiler {
           }
 
           if (!Number.isFinite(_lower) || !Number.isFinite(_upper)) return NaN;
+          if (_lower === _upper) return 0;
+
+          // Domain checks at boundaries: if either limit is NaN, the integration interval is outside domain!
+          const _vLow = _integrand(_lower);
+          if (isNaN(_vLow)) return NaN;
+          const _vUp = _integrand(_upper);
+          if (isNaN(_vUp)) return NaN;
 
           const _n = 120;
           const _h = (_upper - _lower) / _n;
@@ -442,41 +449,52 @@ export class JITCompiler {
               fn: _fn,
               tableY: [],
               tableX: [],
-              minY: -80,
-              maxY: 80,
-              step: 0.25,
+              minY: -50,
+              maxY: 50,
+              step: 0.1,
               build() {
                 const step = this.step;
-                for (let y = this.minY; y <= this.maxY; y += step) {
-                  const x = this.fn(y);
-                  if (Number.isFinite(x)) {
+                let prevY = this.minY;
+                let prevX = this.fn(prevY);
+
+                for (let y = this.minY + step; y <= this.maxY; y += step) {
+                  const currX = this.fn(y);
+                  const prevValid = Number.isFinite(prevX);
+                  const currValid = Number.isFinite(currX);
+
+                  if (!prevValid && currValid) {
+                    let low = prevY, high = y;
+                    for (let it = 0; it < 20; it++) {
+                      const mid = (low + high) * 0.5;
+                      if (Number.isFinite(this.fn(mid))) { high = mid; } else { low = mid; }
+                    }
+                    this.tableY.push(high);
+                    this.tableX.push(this.fn(high));
                     this.tableY.push(y);
-                    this.tableX.push(x);
+                    this.tableX.push(currX);
+                  } else if (prevValid && !currValid) {
+                    let low = prevY, high = y;
+                    for (let it = 0; it < 20; it++) {
+                      const mid = (low + high) * 0.5;
+                      if (Number.isFinite(this.fn(mid))) { low = mid; } else { high = mid; }
+                    }
+                    this.tableY.push(low);
+                    this.tableX.push(this.fn(low));
+                  } else if (currValid) {
+                    this.tableY.push(y);
+                    this.tableX.push(currX);
                   }
+
+                  prevY = y;
+                  prevX = currX;
                 }
               },
               solve(target) {
                 if (this.tableY.length === 0) this.build();
-                const n = this.tableY.length;
-                if (n < 2) return NaN;
-
-                if ((target < this.tableX[0] || target > this.tableX[n - 1]) && this.maxY < 1000) {
-                  const oldMax = this.maxY;
-                  const oldMin = this.minY;
-                  this.maxY += 80;
-                  this.minY -= 80;
-                  for (let y = oldMax + this.step; y <= this.maxY; y += this.step) {
-                    const x = this.fn(y);
-                    if (Number.isFinite(x)) { this.tableY.push(y); this.tableX.push(x); }
-                  }
-                  for (let y = oldMin - this.step; y >= this.minY; y -= this.step) {
-                    const x = this.fn(y);
-                    if (Number.isFinite(x)) { this.tableY.unshift(y); this.tableX.unshift(x); }
-                  }
-                }
-
-                const crossings = [];
                 const len = this.tableY.length;
+                if (len < 2) return NaN;
+
+                const candidateRoots = [];
                 for (let i = 0; i < len - 1; i++) {
                   const x0 = this.tableX[i];
                   const x1 = this.tableX[i + 1];
@@ -485,44 +503,70 @@ export class JITCompiler {
 
                   if (Math.abs(y1 - y0) > 0.6) continue;
 
-                  if ((x0 <= target && target <= x1) || (x1 <= target && target <= x0)) {
+                  if ((x0 <= target && target <= x1) || (x1 <= target && target <= x0) ||
+                      (i === 0 && Math.abs(target - x0) < 1e-3) ||
+                      (i === len - 2 && Math.abs(target - x1) < 1e-3)) {
                     const denom = x1 - x0;
-                    const t = Math.abs(denom) > 1e-12 ? (target - x0) / denom : 0.5;
-                    crossings.push(y0 + t * (y1 - y0));
+                    const t = Math.abs(denom) > 1e-12 ? Math.max(0, Math.min(1, (target - x0) / denom)) : 0.5;
+                    candidateRoots.push({ y: y0 + t * (y1 - y0), idx: i });
                   }
                 }
 
-                if (crossings.length === 0) return NaN;
+                if (candidateRoots.length === 0) return NaN;
 
-                const pos = [];
-                const neg = [];
-                for (let i = 0; i < crossings.length; i++) {
-                  if (crossings[i] > 0.05) pos.push(crossings[i]);
-                  else if (crossings[i] < -0.05) neg.push(crossings[i]);
+                // Group duplicate crossings that belong to the same local root
+                const distinctRoots = [];
+                for (let i = 0; i < candidateRoots.length; i++) {
+                  const cr = candidateRoots[i];
+                  let isDup = false;
+                  for (let j = 0; j < distinctRoots.length; j++) {
+                    if (Math.abs(distinctRoots[j].y - cr.y) < 1.5 * this.step) {
+                      isDup = true;
+                      break;
+                    }
+                  }
+                  if (!isDup) distinctRoots.push(cr);
                 }
 
-                if (pos.length > 1 || neg.length > 1) {
-                  return NaN; // Non-injective on branch!
+                // If non-injective (multiple distinct branches for the same target), return NaN
+                if (distinctRoots.length > 1) {
+                  return NaN;
                 }
 
-                if (pos.length === 1 && neg.length === 1) {
-                  if (Math.abs(pos[0] + neg[0]) > 0.25) return NaN;
-                  return target >= 0 ? pos[0] : neg[0];
-                }
+                const idx = distinctRoots[0].idx;
+                let a = this.tableY[idx];
+                let b = this.tableY[idx + 1];
+                let fa = this.tableX[idx] - target;
+                let fb = this.tableX[idx + 1] - target;
 
-                if (crossings.length > 2) return NaN;
+                if (Math.abs(fa) < 1e-12) return a;
+                if (Math.abs(fb) < 1e-12) return b;
 
-                let cur = crossings[0];
-                const h = 1e-5;
-                const val = this.fn(cur) - target;
-                const deriv = (this.fn(cur + h) - this.fn(cur - h)) / (2 * h);
-                if (Math.abs(deriv) > 1e-10) {
-                  const next = cur - val / deriv;
-                  if (Number.isFinite(next) && Math.abs(next - cur) < 0.25) {
-                    cur = next;
+                // Pegasus / Regula Falsi bounded root finding (guaranteed inside [a, b])
+                for (let iter = 0; iter < 8; iter++) {
+                  if (Math.abs(b - a) < 1e-5) break;
+                  const denom = fb - fa;
+                  if (Math.abs(denom) < 1e-15) break;
+                  const c = b - fb * (b - a) / denom;
+                  const clampedC = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+                  const fc = this.fn(clampedC) - target;
+                  if (!Number.isFinite(fc) || Math.abs(fc) < 1e-8) {
+                    return Math.max(this.tableY[0], Math.min(this.tableY[len - 1], clampedC));
+                  }
+
+                  if (fa * fc < 0) {
+                    b = c;
+                    fb = fc;
+                    fa = fa * 0.5;
+                  } else {
+                    a = c;
+                    fa = fc;
+                    fb = fb * 0.5;
                   }
                 }
-                return cur;
+
+                const resY = (a + b) * 0.5;
+                return Math.max(this.tableY[0], Math.min(this.tableY[len - 1], resY));
               }
             };
             scope._invCache.set("${fnName}", _solver);
