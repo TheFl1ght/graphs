@@ -329,7 +329,8 @@ body.resizing-sidebar {
 }
 
 .expression-item.is-variable .item-gutter {
-  padding-top: 6px;
+  padding-top: 5px;
+  gap: 3px;
 }
 
 .expression-item.is-variable math-field {
@@ -915,9 +916,46 @@ math-field:focus-within {
 .slider-container input[type="range"] {
   flex: 1;
   cursor: pointer;
-  accent-color: #475569;
+  -webkit-appearance: none;
+  appearance: none;
   height: 4px;
+  background: #e2e8f0;
+  border-radius: 9999px;
   margin: 0;
+  outline: none;
+}
+
+.slider-container input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2d70b3;
+  cursor: pointer;
+  box-shadow: 0 0 0 5px rgba(45, 112, 179, 0.22);
+  transition: box-shadow 0.15s ease-in-out;
+}
+
+.slider-container input[type="range"]::-webkit-slider-thumb:hover,
+.slider-container input[type="range"]:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 8px rgba(45, 112, 179, 0.38);
+}
+
+.slider-container input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2d70b3;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 0 5px rgba(45, 112, 179, 0.22);
+  transition: box-shadow 0.15s ease-in-out;
+}
+
+.slider-container input[type="range"]::-moz-range-thumb:hover,
+.slider-container input[type="range"]:active::-moz-range-thumb {
+  box-shadow: 0 0 0 8px rgba(45, 112, 179, 0.38);
 }
 
 .slider-bound {
@@ -952,6 +990,164 @@ math-field:focus-within {
   color: #64748b;
   font-family: "KaTeX_Main", "Times New Roman", Times, serif;
   user-select: none;
+}
+
+/* Desmos-style Slider Animation & Settings Controls in Gutter */
+.slider-play-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid #94a3b8;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.slider-play-btn:hover {
+  border-color: #2563eb;
+  background: #f8fafc;
+  transform: scale(1.05);
+}
+
+.slider-play-btn:hover svg {
+  fill: #2563eb;
+}
+
+.slider-settings-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.slider-settings-btn:hover {
+  background: #e2e8f0;
+}
+
+.slider-settings-btn:hover svg {
+  stroke: #2563eb;
+}
+
+/* Desmos-style Slider Animation Popover */
+.slider-animation-popover {
+  position: fixed;
+  z-index: 10000;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.08);
+  padding: 12px 14px;
+  width: 215px;
+  box-sizing: border-box;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slider-animation-popover::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border-left: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+  transform: rotate(45deg);
+}
+
+.slider-animation-popover .popover-section-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #475569;
+  user-select: none;
+  margin-bottom: 2px;
+}
+
+.anim-mode-group {
+  display: flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.anim-mode-btn {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-right: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.anim-mode-btn:last-child {
+  border-right: none;
+}
+
+.anim-mode-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.anim-mode-btn.active {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.anim-mode-btn svg {
+  display: block;
+}
+
+.slider-speed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.slider-speed-label {
+  font-size: 0.82rem;
+  color: #475569;
+  user-select: none;
+}
+
+.slider-speed-input {
+  width: 70px;
+  height: 28px;
+  padding: 2px 6px;
+  font-size: 0.88rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  color: #1e293b;
+  outline: none;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.slider-speed-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 /* Error message */

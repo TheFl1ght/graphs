@@ -106,6 +106,10 @@ export interface ExpressionEntry {
   sliderMin?: number;
   sliderMax?: number;
   sliderStep?: number;
+  isAnimating?: boolean;
+  animationMode?: 'oscillate' | 'loop' | 'once' | 'forward';
+  animationSpeed?: number; // steps per second
+  animationDirection?: 1 | -1;
   compiledFn?: CompiledFunction;
   tableColumns?: TableColumn[];
   tableRows?: string[][];
@@ -127,6 +131,8 @@ export interface HistorySnapshot {
     sliderMin?: number;
     sliderMax?: number;
     sliderStep?: number;
+    animationMode?: 'oscillate' | 'loop' | 'once' | 'forward';
+    animationSpeed?: number;
     tableColumns?: TableColumn[];
     tableRows?: string[][];
     regressions?: TableRegression[];
@@ -208,6 +214,8 @@ export class ExpressionManager {
         sliderMin: e.sliderMin,
         sliderMax: e.sliderMax,
         sliderStep: e.sliderStep,
+        animationMode: e.animationMode,
+        animationSpeed: e.animationSpeed,
         tableColumns: e.tableColumns ? JSON.parse(JSON.stringify(e.tableColumns)) : undefined,
         tableRows: e.tableRows ? JSON.parse(JSON.stringify(e.tableRows)) : undefined,
         regressions: e.regressions ? JSON.parse(JSON.stringify(e.regressions.map(r => ({
@@ -248,6 +256,8 @@ export class ExpressionManager {
         sliderMin: s.sliderMin,
         sliderMax: s.sliderMax,
         sliderStep: s.sliderStep,
+        animationMode: s.animationMode,
+        animationSpeed: s.animationSpeed,
         tableColumns: s.tableColumns ? JSON.parse(JSON.stringify(s.tableColumns)) : undefined,
         tableRows: s.tableRows ? JSON.parse(JSON.stringify(s.tableRows)) : undefined,
         regressions: s.regressions ? JSON.parse(JSON.stringify(s.regressions)) : undefined,

@@ -787,23 +787,10 @@ class App {
         itemEl.className = 'expression-item';
         itemEl.dataset.id = entry.id;
 
-        // 1. Gutter: index number and color circle
+        // 1. Gutter: index number and play/settings buttons (for variables) or color circle
         const gutterEl = document.createElement('div');
         gutterEl.className = 'item-gutter';
-
-        const indexEl = document.createElement('span');
-        indexEl.className = 'item-index';
-        indexEl.textContent = (idx + 1).toString();
-
-        const circleEl = document.createElement('div');
-        circleEl.className = 'color-circle';
-        const circleInner = document.createElement('div');
-        circleInner.className = 'color-circle-inner';
-        circleEl.appendChild(circleInner);
-        this.setupCircleEvents(circleEl, circleInner, entry);
-
-        gutterEl.appendChild(indexEl);
-        gutterEl.appendChild(circleEl);
+        this.updateGutter(gutterEl, entry, idx, itemEl);
         itemEl.appendChild(gutterEl);
 
         // 2. Content Area
@@ -811,9 +798,9 @@ class App {
         contentEl.className = 'item-content';
 
         if (entry.kind === 'table') {
-          this.renderTableItem(contentEl, itemEl, entry, circleInner);
+          this.renderTableItem(contentEl, itemEl, entry);
         } else {
-          this.renderMathItem(contentEl, itemEl, entry, circleInner);
+          this.renderMathItem(contentEl, itemEl, entry);
         }
 
         itemEl.appendChild(contentEl);
@@ -827,8 +814,7 @@ class App {
   private renderMathItem(
     contentEl: HTMLElement,
     itemEl: HTMLElement,
-    entry: ExpressionEntry,
-    circleInner: HTMLElement
+    entry: ExpressionEntry
   ): void {
     const mathRow = document.createElement('div');
     mathRow.className = 'math-row';
@@ -880,7 +866,11 @@ class App {
       if ((mf as any)._isNavigating) {
         (mf as any)._isNavigating = false;
         this.exprManager.updateExpression(entry.id, latex);
-        circleInner.style.backgroundColor = (entry.type === 'invalid' || entry.type === 'evaluation') ? '#cbd5e1' : entry.color;
+        const gutterEl = itemEl.querySelector('.item-gutter') as HTMLElement;
+        if (gutterEl) {
+          const curIdx = this.exprManager.entries.indexOf(entry);
+          this.updateGutter(gutterEl, entry, curIdx >= 0 ? curIdx : 0, itemEl);
+        }
         this.updateItemExtras(contentEl, entry, mf);
         return;
       }
@@ -907,7 +897,11 @@ class App {
       }
 
       this.exprManager.updateExpression(entry.id, latex);
-      this.updateCircleAppearance(circleInner, entry);
+      const gutterEl = itemEl.querySelector('.item-gutter') as HTMLElement;
+      if (gutterEl) {
+        const curIdx = this.exprManager.entries.indexOf(entry);
+        this.updateGutter(gutterEl, entry, curIdx >= 0 ? curIdx : 0, itemEl);
+      }
       this.pushHistory(false);
 
       if (entry.type === 'variable') {
@@ -928,23 +922,12 @@ class App {
 
         const newGutterEl = document.createElement('div');
         newGutterEl.className = 'item-gutter';
-        const newIndexEl = document.createElement('span');
-        newIndexEl.className = 'item-index';
-        newIndexEl.textContent = this.exprManager.entries.length.toString();
-
-        const newCircleEl = document.createElement('div');
-        newCircleEl.className = 'color-circle';
-        const newCircleInner = document.createElement('div');
-        newCircleInner.className = 'color-circle-inner';
-        newCircleEl.appendChild(newCircleInner);
-        this.setupCircleEvents(newCircleEl, newCircleInner, newEntry);
-        newGutterEl.appendChild(newIndexEl);
-        newGutterEl.appendChild(newCircleEl);
+        this.updateGutter(newGutterEl, newEntry, this.exprManager.entries.length - 1, newItemEl);
         newItemEl.appendChild(newGutterEl);
 
         const newContentEl = document.createElement('div');
         newContentEl.className = 'item-content';
-        this.renderMathItem(newContentEl, newItemEl, newEntry, newCircleInner);
+        this.renderMathItem(newContentEl, newItemEl, newEntry);
         newItemEl.appendChild(newContentEl);
 
         this.exprListEl.appendChild(newItemEl);
@@ -1463,7 +1446,7 @@ class App {
     contentEl: HTMLElement,
     itemEl: HTMLElement,
     entry: ExpressionEntry,
-    _circleInner: HTMLElement
+    _circleInner?: HTMLElement
   ): void {
     const tableCount = this.exprManager.entries.filter(e => e.kind === 'table').length;
     const tableNum = tableCount || 1;
@@ -3355,24 +3338,7 @@ class App {
 
         if (mf) {
           const formatted = Number.isInteger(val) ? val.toString() : val.toFixed(2);
-          const varName = entry.varName!;
-          const isGreek = Lexer.GREEK_LETTERS.includes(varName) || Lexer.GREEK_LETTERS.some(g => varName.startsWith(g + '_'));
-          let latexName = varName;
-          if (isGreek) {
-            for (const g of Lexer.GREEK_LETTERS) {
-              if (varName === g) {
-                latexName = `\\${g}`;
-                break;
-              } else if (varName.startsWith(g + '_')) {
-                const sub = varName.slice(g.length + 1);
-                latexName = `\\${g}_{${sub}}`;
-                break;
-              }
-            }
-          } else if (varName.includes('_')) {
-            const parts = varName.split('_');
-            latexName = `${parts[0]}_{${parts.slice(1).join('_')}}`;
-          }
+          const latexName = this.getLatexVariableName(entry.varName!);
           mf.setValue(`${latexName} = ${formatted}`);
         }
       });
@@ -3850,8 +3816,319 @@ class App {
     }, 20);
   }
 
+  private getLatexVariableName(varName: string): string {
+    const isGreek = Lexer.GREEK_LETTERS.includes(varName) || Lexer.GREEK_LETTERS.some(g => varName.startsWith(g + '_'));
+    if (isGreek) {
+      for (const g of Lexer.GREEK_LETTERS) {
+        const latexG = g === 'phi' ? 'varphi' : g;
+        if (varName === g) {
+          return `\\${latexG}`;
+        } else if (varName.startsWith(g + '_')) {
+          const sub = varName.slice(g.length + 1);
+          return `\\${latexG}_{${sub}}`;
+        }
+      }
+    } else if (varName.includes('_')) {
+      const parts = varName.split('_');
+      return `${parts[0]}_{${parts.slice(1).join('_')}}`;
+    }
+    return varName;
+  }
+
+  private updateGutter(
+    gutterEl: HTMLElement,
+    entry: ExpressionEntry,
+    idx: number,
+    itemEl: HTMLElement
+  ): void {
+    gutterEl.innerHTML = '';
+
+    const indexEl = document.createElement('span');
+    indexEl.className = 'item-index';
+    indexEl.textContent = (idx + 1).toString();
+    gutterEl.appendChild(indexEl);
+
+    if (entry.type === 'variable') {
+      const playBtn = document.createElement('button');
+      playBtn.className = 'slider-play-btn';
+      playBtn.title = entry.isAnimating ? 'Пауза' : 'Анимация';
+      playBtn.innerHTML = entry.isAnimating
+        ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+        : `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M8 5v14l11-7z"/></svg>`;
+
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleSliderAnimation(entry, itemEl);
+      });
+      gutterEl.appendChild(playBtn);
+
+      const settingsBtn = document.createElement('button');
+      settingsBtn.className = 'slider-settings-btn';
+      settingsBtn.title = 'Настройки анимации';
+      settingsBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      `;
+
+      settingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openAnimationPopover(settingsBtn, entry);
+      });
+      gutterEl.appendChild(settingsBtn);
+    } else {
+      const circleEl = document.createElement('div');
+      circleEl.className = 'color-circle';
+      const circleInner = document.createElement('div');
+      circleInner.className = 'color-circle-inner';
+      circleEl.appendChild(circleInner);
+      this.setupCircleEvents(circleEl, circleInner, entry);
+      gutterEl.appendChild(circleEl);
+    }
+  }
+
+  private toggleSliderAnimation(entry: ExpressionEntry, _itemEl: HTMLElement): void {
+    if (!entry.isAnimating) {
+      entry.isAnimating = true;
+      if (!entry.animationDirection) entry.animationDirection = 1;
+      const min = entry.sliderMin ?? -10;
+      const max = entry.sliderMax ?? 10;
+      if (entry.animationDirection > 0 && typeof entry.value === 'number' && entry.value >= max) {
+        entry.value = min;
+        this.exprManager.setVariableValue(entry.varName!, min);
+      } else if (entry.animationDirection < 0 && typeof entry.value === 'number' && entry.value <= min) {
+        entry.value = max;
+        this.exprManager.setVariableValue(entry.varName!, max);
+      }
+      this.updatePlayButtonState(entry.id, true);
+    } else {
+      entry.isAnimating = false;
+      this.updatePlayButtonState(entry.id, false);
+    }
+  }
+
+  private updatePlayButtonState(id: string, isPlaying: boolean): void {
+    const itemEl = this.exprListEl.querySelector(`[data-id="${id}"]`);
+    if (!itemEl) return;
+    const playBtn = itemEl.querySelector('.slider-play-btn') as HTMLElement;
+    if (!playBtn) return;
+    playBtn.title = isPlaying ? 'Пауза' : 'Анимация';
+    playBtn.innerHTML = isPlaying
+      ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+      : `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M8 5v14l11-7z"/></svg>`;
+  }
+
+  private openAnimationPopover(anchorEl: HTMLElement, entry: ExpressionEntry): void {
+    const existing = document.querySelector('.slider-animation-popover');
+    if (existing) {
+      const wasForThisAnchor = (existing as any)._anchorEl === anchorEl;
+      existing.remove();
+      if (wasForThisAnchor) return;
+    }
+
+    const popover = document.createElement('div');
+    popover.className = 'slider-animation-popover';
+    (popover as any)._anchorEl = anchorEl;
+
+    // 1. Animation Mode Section
+    const modeTitle = document.createElement('div');
+    modeTitle.className = 'popover-section-title';
+    modeTitle.textContent = 'Режим анимации';
+    popover.appendChild(modeTitle);
+
+    const modeGroup = document.createElement('div');
+    modeGroup.className = 'anim-mode-group';
+
+    const modes: { id: 'oscillate' | 'loop' | 'once' | 'forward'; title: string; svg: string }[] = [
+      {
+        id: 'oscillate',
+        title: 'Туда-обратно',
+        svg: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16M16 4l4 4-4 4M20 16H4M8 12l-4 4 4 4"/></svg>`
+      },
+      {
+        id: 'loop',
+        title: 'В одном направлении (повтор)',
+        svg: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h14M13 4l4 4-4 4M3 16h14M13 12l4 4-4 4"/></svg>`
+      },
+      {
+        id: 'once',
+        title: 'Один раз',
+        svg: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h13M12 6l4 4-4 4"/><circle cx="10" cy="18" r="3.5" fill="currentColor"/><text x="10" y="20.5" font-size="6" fill="#fff" text-anchor="middle" font-family="sans-serif" font-weight="bold">1</text></svg>`
+      },
+      {
+        id: 'forward',
+        title: 'Непрерывно вперед',
+        svg: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h10M16 8l4 4-4 4"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="7" cy="12" r="1.5" fill="currentColor"/></svg>`
+      }
+    ];
+
+    const currentMode = entry.animationMode ?? 'oscillate';
+    modes.forEach(m => {
+      const btn = document.createElement('button');
+      btn.className = `anim-mode-btn ${currentMode === m.id ? 'active' : ''}`;
+      btn.title = m.title;
+      btn.innerHTML = m.svg;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        entry.animationMode = m.id;
+        modeGroup.querySelectorAll('.anim-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.pushHistory(false);
+      });
+      modeGroup.appendChild(btn);
+    });
+    popover.appendChild(modeGroup);
+
+    // 2. Speed (Steps Per Second) Section
+    const speedRow = document.createElement('div');
+    speedRow.className = 'slider-speed-row';
+
+    const speedLabel = document.createElement('div');
+    speedLabel.className = 'slider-speed-label';
+    speedLabel.textContent = 'Шагов в секунду:';
+
+    const speedInput = document.createElement('input');
+    speedInput.type = 'number';
+    speedInput.className = 'slider-speed-input';
+    speedInput.min = '1';
+    speedInput.max = '240';
+    speedInput.step = '1';
+    speedInput.value = (entry.animationSpeed ?? 20).toString();
+    speedInput.title = 'Количество шагов ползунка в секунду';
+
+    const onSpeedChange = () => {
+      const val = parseFloat(speedInput.value);
+      if (!isNaN(val) && val > 0) {
+        entry.animationSpeed = val;
+        this.pushHistory(false);
+      } else {
+        speedInput.value = (entry.animationSpeed ?? 20).toString();
+      }
+    };
+    speedInput.addEventListener('input', onSpeedChange);
+    speedInput.addEventListener('change', onSpeedChange);
+    speedInput.addEventListener('click', (e) => e.stopPropagation());
+    speedInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        onSpeedChange();
+        speedInput.blur();
+      }
+    });
+
+    speedRow.appendChild(speedLabel);
+    speedRow.appendChild(speedInput);
+    popover.appendChild(speedRow);
+
+    // Position popover next to anchor button
+    const rect = anchorEl.getBoundingClientRect();
+    popover.style.position = 'fixed';
+    popover.style.left = `${rect.right + 10}px`;
+    popover.style.top = `${Math.max(10, Math.min(window.innerHeight - 150, rect.top - 10))}px`;
+
+    document.body.appendChild(popover);
+
+    // Close on click outside or escape
+    const outsideClickHandler = (e: MouseEvent) => {
+      if (!popover.contains(e.target as Node) && !anchorEl.contains(e.target as Node)) {
+        popover.remove();
+        document.removeEventListener('pointerdown', outsideClickHandler);
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        popover.remove();
+        document.removeEventListener('pointerdown', outsideClickHandler);
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('pointerdown', outsideClickHandler);
+      document.addEventListener('keydown', escHandler);
+    }, 10);
+  }
+
+  private updateSliderAnimations(dt: number): void {
+    let anyChanged = false;
+    for (const entry of this.exprManager.entries) {
+      if (entry.type !== 'variable' || !entry.isAnimating || !entry.varName) continue;
+
+      const speed = entry.animationSpeed ?? 20; // steps per second
+      const step = entry.sliderStep ?? 0.05;
+      const min = entry.sliderMin ?? -10;
+      const max = entry.sliderMax ?? 10;
+      const mode = entry.animationMode ?? 'oscillate';
+      let dir = entry.animationDirection ?? 1;
+      const currentVal = typeof entry.value === 'number' ? entry.value : 0;
+
+      const delta = speed * step * dt * dir;
+      let nextVal = currentVal + delta;
+
+      if (dir > 0 && nextVal >= max) {
+        if (mode === 'oscillate') {
+          nextVal = max;
+          entry.animationDirection = -1;
+        } else if (mode === 'loop' || mode === 'forward') {
+          nextVal = min;
+        } else if (mode === 'once') {
+          nextVal = max;
+          entry.isAnimating = false;
+          this.updatePlayButtonState(entry.id, false);
+        }
+      } else if (dir < 0 && nextVal <= min) {
+        if (mode === 'oscillate') {
+          nextVal = min;
+          entry.animationDirection = 1;
+        } else if (mode === 'loop') {
+          nextVal = max;
+        } else if (mode === 'once') {
+          nextVal = min;
+          entry.isAnimating = false;
+          this.updatePlayButtonState(entry.id, false);
+        }
+      }
+
+      let formattedVal = nextVal;
+      if (step > 0) {
+        const decimals = step.toString().includes('.') ? step.toString().split('.')[1].length : 0;
+        formattedVal = parseFloat(nextVal.toFixed(Math.min(Math.max(decimals + 1, 2), 5)));
+      }
+
+      entry.value = formattedVal;
+      this.exprManager.setVariableValue(entry.varName, formattedVal);
+      anyChanged = true;
+
+      const itemEl = this.exprListEl.querySelector(`[data-id="${entry.id}"]`);
+      if (itemEl) {
+        const rangeInput = itemEl.querySelector('.slider-track') as HTMLInputElement;
+        if (rangeInput) {
+          rangeInput.value = formattedVal.toString();
+        }
+        const mf = itemEl.querySelector('math-field') as any;
+        if (mf && document.activeElement !== mf) {
+          const latexName = this.getLatexVariableName(entry.varName);
+          const displayStr = Number.isInteger(formattedVal) ? formattedVal.toString() : parseFloat(formattedVal.toFixed(3)).toString();
+          mf.setValue(`${latexName} = ${displayStr}`);
+        }
+      }
+    }
+
+    if (anyChanged) {
+      this.isDirty = true;
+    }
+  }
+
+  private lastAnimTime: number = 0;
   private startRenderLoop(): void {
-    const loop = () => {
+    const loop = (currentTime: number) => {
+      if (!this.lastAnimTime) this.lastAnimTime = currentTime;
+      const dt = Math.min((currentTime - this.lastAnimTime) / 1000, 0.1);
+      this.lastAnimTime = currentTime;
+
+      this.updateSliderAnimations(dt);
+
       const moving = this.camera.updateInertia();
       if (moving || this.camera.isDragging || this.isDirty) {
         this.isDirty = false;
