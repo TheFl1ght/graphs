@@ -13,6 +13,7 @@ export interface CurveGraphItem {
   visible: boolean;
   lineStyle?: LineStyle;
   orientation?: 'y-of-x' | 'x-of-y';
+  layer?: number;
 }
 
 export interface PointsGraphItem {
@@ -26,6 +27,7 @@ export interface PointsGraphItem {
     dy?: number;
   }[];
   visible: boolean;
+  layer?: number;
 }
 
 export interface VectorGraphItem {
@@ -36,6 +38,7 @@ export interface VectorGraphItem {
   target: { x: number; y: number };
   label?: string;
   visible: boolean;
+  layer?: number;
 }
 
 export type GraphItem = CurveGraphItem | PointsGraphItem | VectorGraphItem;

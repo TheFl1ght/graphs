@@ -3731,26 +3731,102 @@ class App {
       popover.appendChild(styleSec);
     }
 
-    // 3. Visibility Section
-    const visSec = document.createElement('div');
-    visSec.className = 'popover-section popover-visibility-section';
-    const visBtn = document.createElement('button');
-    visBtn.className = `visibility-toggle-btn ${entry.visible !== false ? 'is-visible' : 'is-hidden'}`;
-    const updateVisBtnText = () => {
-      visBtn.innerHTML = entry.visible !== false
-        ? '👁 <span>График включен</span>'
-        : '🚫 <span>График скрыт</span>';
+    // 3. Layer Section (Настройка слоев)
+    const layerSec = document.createElement('div');
+    layerSec.className = 'popover-section popover-layer-section';
+
+    const layerTitle = document.createElement('div');
+    layerTitle.className = 'popover-section-title';
+    layerTitle.textContent = 'Слой графика';
+    layerSec.appendChild(layerTitle);
+
+    const layerRow = document.createElement('div');
+    layerRow.className = 'layer-control-row';
+
+    const currentLayer = entry.layer ?? 1;
+
+    const minusBtn = document.createElement('button');
+    minusBtn.className = 'layer-step-btn';
+    minusBtn.title = 'Опустить слой (-1)';
+    minusBtn.textContent = '−';
+
+    const layerInput = document.createElement('input');
+    layerInput.type = 'number';
+    layerInput.className = 'layer-input';
+    layerInput.min = '1';
+    layerInput.max = '99';
+    layerInput.value = currentLayer.toString();
+    layerInput.title = 'Номер слоя (графики с большим слоем рисуются поверх других)';
+
+    const plusBtn = document.createElement('button');
+    plusBtn.className = 'layer-step-btn';
+    plusBtn.title = 'Поднять слой (+1)';
+    plusBtn.textContent = '+';
+
+    const backBtn = document.createElement('button');
+    backBtn.className = 'layer-action-btn';
+    backBtn.title = 'Поместить на самый нижний слой';
+    backBtn.textContent = 'Вниз';
+
+    const frontBtn = document.createElement('button');
+    frontBtn.className = 'layer-action-btn';
+    frontBtn.title = 'Поместить на самый верхний слой';
+    frontBtn.textContent = 'Вверх';
+
+    const applyLayer = (newVal: number) => {
+      const val = Math.max(1, Math.min(99, newVal));
+      entry.layer = val;
+      layerInput.value = val.toString();
+      this.isDirty = true;
+      this.pushHistory(false);
     };
-    updateVisBtnText();
-    visBtn.addEventListener('click', (e) => {
+
+    minusBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.exprManager.toggleVisibility(entry.id);
-      visBtn.className = `visibility-toggle-btn ${entry.visible !== false ? 'is-visible' : 'is-hidden'}`;
-      updateVisBtnText();
-      this.updateCircleAppearance(circleInner, entry);
+      applyLayer((entry.layer ?? 1) - 1);
     });
-    visSec.appendChild(visBtn);
-    popover.appendChild(visSec);
+
+    plusBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyLayer((entry.layer ?? 1) + 1);
+    });
+
+    backBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const allLayers = this.exprManager.entries.map(e => e.layer ?? 1);
+      const minLayer = Math.min(...allLayers, 1);
+      applyLayer(Math.max(1, minLayer - 1));
+    });
+
+    frontBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const allLayers = this.exprManager.entries.map(e => e.layer ?? 1);
+      const maxLayer = Math.max(...allLayers, 1);
+      applyLayer(maxLayer + 1);
+    });
+
+    layerInput.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const parsed = parseInt(layerInput.value, 10);
+      applyLayer(!isNaN(parsed) ? parsed : 1);
+    });
+    layerInput.addEventListener('click', (e) => e.stopPropagation());
+    layerInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const parsed = parseInt(layerInput.value, 10);
+        applyLayer(!isNaN(parsed) ? parsed : 1);
+        layerInput.blur();
+      }
+    });
+
+    layerRow.appendChild(minusBtn);
+    layerRow.appendChild(layerInput);
+    layerRow.appendChild(plusBtn);
+    layerRow.appendChild(backBtn);
+    layerRow.appendChild(frontBtn);
+    layerSec.appendChild(layerRow);
+    popover.appendChild(layerSec);
 
     document.body.appendChild(popover);
 
@@ -3891,6 +3967,7 @@ class App {
   private toggleSliderAnimation(entry: ExpressionEntry, _itemEl: HTMLElement): void {
     if (!entry.isAnimating) {
       entry.isAnimating = true;
+      entry.animStepAccumulator = 0;
       if (!entry.animationDirection) entry.animationDirection = 1;
       const min = entry.sliderMin ?? -10;
       const max = entry.sliderMax ?? 10;
@@ -3904,6 +3981,7 @@ class App {
       this.updatePlayButtonState(entry.id, true);
     } else {
       entry.isAnimating = false;
+      entry.animStepAccumulator = 0;
       this.updatePlayButtonState(entry.id, false);
     }
   }
@@ -3991,28 +4069,49 @@ class App {
     const speedInput = document.createElement('input');
     speedInput.type = 'number';
     speedInput.className = 'slider-speed-input';
-    speedInput.min = '1';
-    speedInput.max = '240';
-    speedInput.step = '1';
+    speedInput.min = '0';
+    speedInput.step = 'any';
     speedInput.value = (entry.animationSpeed ?? 20).toString();
     speedInput.title = 'Количество шагов ползунка в секунду';
 
-    const onSpeedChange = () => {
-      const val = parseFloat(speedInput.value);
-      if (!isNaN(val) && val > 0) {
-        entry.animationSpeed = val;
-        this.pushHistory(false);
+    const commitSpeed = () => {
+      const raw = speedInput.value.trim();
+      if (raw === '') {
+        speedInput.value = '0';
+        entry.animationSpeed = 0;
       } else {
-        speedInput.value = (entry.animationSpeed ?? 20).toString();
+        const val = parseFloat(raw);
+        if (isNaN(val) || val < 0) {
+          speedInput.value = '0';
+          entry.animationSpeed = 0;
+        } else {
+          speedInput.value = val.toString();
+          entry.animationSpeed = val;
+        }
       }
+      this.pushHistory(false);
     };
-    speedInput.addEventListener('input', onSpeedChange);
-    speedInput.addEventListener('change', onSpeedChange);
+
+    speedInput.addEventListener('input', () => {
+      const raw = speedInput.value.trim();
+      if (raw === '') {
+        // Allow user to empty the input completely without immediate revert!
+        entry.animationSpeed = 0;
+      } else {
+        const val = parseFloat(raw);
+        if (!isNaN(val) && val >= 0) {
+          entry.animationSpeed = val;
+        }
+      }
+    });
+
+    speedInput.addEventListener('blur', commitSpeed);
+    speedInput.addEventListener('change', commitSpeed);
     speedInput.addEventListener('click', (e) => e.stopPropagation());
     speedInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
-        onSpeedChange();
+        commitSpeed();
         speedInput.blur();
       }
     });
@@ -4032,6 +4131,7 @@ class App {
     // Close on click outside or escape
     const outsideClickHandler = (e: MouseEvent) => {
       if (!popover.contains(e.target as Node) && !anchorEl.contains(e.target as Node)) {
+        commitSpeed();
         popover.remove();
         document.removeEventListener('pointerdown', outsideClickHandler);
         document.removeEventListener('keydown', escHandler);
@@ -4039,6 +4139,7 @@ class App {
     };
     const escHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        commitSpeed();
         popover.remove();
         document.removeEventListener('pointerdown', outsideClickHandler);
         document.removeEventListener('keydown', escHandler);
@@ -4056,45 +4157,61 @@ class App {
       if (entry.type !== 'variable' || !entry.isAnimating || !entry.varName) continue;
 
       const speed = entry.animationSpeed ?? 20; // steps per second
-      const step = entry.sliderStep ?? 0.05;
+      if (speed <= 0) continue; // If 0 steps per second, does not advance
+
+      const step = entry.sliderStep && entry.sliderStep > 0 ? entry.sliderStep : 0.05;
       const min = entry.sliderMin ?? -10;
       const max = entry.sliderMax ?? 10;
       const mode = entry.animationMode ?? 'oscillate';
       let dir = entry.animationDirection ?? 1;
-      const currentVal = typeof entry.value === 'number' ? entry.value : 0;
 
-      const delta = speed * step * dt * dir;
-      let nextVal = currentVal + delta;
+      // Accumulate discrete steps
+      entry.animStepAccumulator = (entry.animStepAccumulator ?? 0) + speed * dt;
+      if (entry.animStepAccumulator < 1) {
+        continue;
+      }
 
-      if (dir > 0 && nextVal >= max) {
+      const numSteps = Math.floor(entry.animStepAccumulator);
+      entry.animStepAccumulator -= numSteps;
+
+      const currentVal = typeof entry.value === 'number' ? entry.value : min;
+      const currentStepIndex = Math.round((currentVal - min) / step);
+      let nextStepIndex = currentStepIndex + numSteps * dir;
+      const totalSteps = Math.max(1, Math.round((max - min) / step));
+
+      if (dir > 0 && nextStepIndex >= totalSteps) {
         if (mode === 'oscillate') {
-          nextVal = max;
+          nextStepIndex = totalSteps;
           entry.animationDirection = -1;
         } else if (mode === 'loop' || mode === 'forward') {
-          nextVal = min;
+          nextStepIndex = 0;
         } else if (mode === 'once') {
-          nextVal = max;
+          nextStepIndex = totalSteps;
           entry.isAnimating = false;
+          entry.animStepAccumulator = 0;
           this.updatePlayButtonState(entry.id, false);
         }
-      } else if (dir < 0 && nextVal <= min) {
+      } else if (dir < 0 && nextStepIndex <= 0) {
         if (mode === 'oscillate') {
-          nextVal = min;
+          nextStepIndex = 0;
           entry.animationDirection = 1;
         } else if (mode === 'loop') {
-          nextVal = max;
+          nextStepIndex = totalSteps;
         } else if (mode === 'once') {
-          nextVal = min;
+          nextStepIndex = 0;
           entry.isAnimating = false;
+          entry.animStepAccumulator = 0;
           this.updatePlayButtonState(entry.id, false);
         }
       }
 
-      let formattedVal = nextVal;
-      if (step > 0) {
-        const decimals = step.toString().includes('.') ? step.toString().split('.')[1].length : 0;
-        formattedVal = parseFloat(nextVal.toFixed(Math.min(Math.max(decimals + 1, 2), 5)));
-      }
+      let nextVal = min + nextStepIndex * step;
+      nextVal = Math.max(min, Math.min(max, nextVal));
+
+      const stepDecimals = step.toString().includes('.') ? step.toString().split('.')[1].length : 0;
+      const minDecimals = min.toString().includes('.') ? min.toString().split('.')[1].length : 0;
+      const precision = Math.max(stepDecimals, minDecimals);
+      const formattedVal = parseFloat(nextVal.toFixed(precision));
 
       entry.value = formattedVal;
       this.exprManager.setVariableValue(entry.varName, formattedVal);
@@ -4109,7 +4226,7 @@ class App {
         const mf = itemEl.querySelector('math-field') as any;
         if (mf && document.activeElement !== mf) {
           const latexName = this.getLatexVariableName(entry.varName);
-          const displayStr = Number.isInteger(formattedVal) ? formattedVal.toString() : parseFloat(formattedVal.toFixed(3)).toString();
+          const displayStr = Number.isInteger(formattedVal) ? formattedVal.toString() : formattedVal.toFixed(precision);
           mf.setValue(`${latexName} = ${displayStr}`);
         }
       }

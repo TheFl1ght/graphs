@@ -110,6 +110,8 @@ export interface ExpressionEntry {
   animationMode?: 'oscillate' | 'loop' | 'once' | 'forward';
   animationSpeed?: number; // steps per second
   animationDirection?: 1 | -1;
+  animStepAccumulator?: number;
+  layer?: number;
   compiledFn?: CompiledFunction;
   tableColumns?: TableColumn[];
   tableRows?: string[][];
@@ -133,6 +135,7 @@ export interface HistorySnapshot {
     sliderStep?: number;
     animationMode?: 'oscillate' | 'loop' | 'once' | 'forward';
     animationSpeed?: number;
+    layer?: number;
     tableColumns?: TableColumn[];
     tableRows?: string[][];
     regressions?: TableRegression[];
@@ -216,6 +219,7 @@ export class ExpressionManager {
         sliderStep: e.sliderStep,
         animationMode: e.animationMode,
         animationSpeed: e.animationSpeed,
+        layer: e.layer,
         tableColumns: e.tableColumns ? JSON.parse(JSON.stringify(e.tableColumns)) : undefined,
         tableRows: e.tableRows ? JSON.parse(JSON.stringify(e.tableRows)) : undefined,
         regressions: e.regressions ? JSON.parse(JSON.stringify(e.regressions.map(r => ({
@@ -258,6 +262,7 @@ export class ExpressionManager {
         sliderStep: s.sliderStep,
         animationMode: s.animationMode,
         animationSpeed: s.animationSpeed,
+        layer: s.layer,
         tableColumns: s.tableColumns ? JSON.parse(JSON.stringify(s.tableColumns)) : undefined,
         tableRows: s.tableRows ? JSON.parse(JSON.stringify(s.tableRows)) : undefined,
         regressions: s.regressions ? JSON.parse(JSON.stringify(s.regressions)) : undefined,
@@ -1181,7 +1186,8 @@ export class ExpressionManager {
               id: `${entry.id}_col_${colIdx}`,
               color: colColor,
               points: pts,
-              visible: entry.visible !== false
+              visible: entry.visible !== false,
+              layer: entry.layer ?? 1
             });
           }
         }
@@ -1196,7 +1202,8 @@ export class ExpressionManager {
                 color: reg.color,
                 fn: reg.fn,
                 visible: true,
-                lineStyle: reg.lineStyle || 'solid'
+                lineStyle: reg.lineStyle || 'solid',
+                layer: entry.layer ?? 1
               });
 
               // If k_min and k_max dashed lines are enabled
@@ -1207,7 +1214,8 @@ export class ExpressionManager {
                   color: reg.color,
                   fn: (x: number) => reg.kMin! * x + reg.bMin!,
                   visible: true,
-                  lineStyle: 'dashed'
+                  lineStyle: 'dashed',
+                  layer: entry.layer ?? 1
                 });
                 items.push({
                   type: 'curve',
@@ -1215,7 +1223,8 @@ export class ExpressionManager {
                   color: reg.color,
                   fn: (x: number) => reg.kMax! * x + reg.bMax!,
                   visible: true,
-                  lineStyle: 'dashed'
+                  lineStyle: 'dashed',
+                  layer: entry.layer ?? 1
                 });
               }
             }
@@ -1228,7 +1237,8 @@ export class ExpressionManager {
           color: entry.color,
           target: entry.vector,
           label: entry.varName || undefined,
-          visible: entry.visible !== false
+          visible: entry.visible !== false,
+          layer: entry.layer ?? 1
         });
       } else if (entry.compiledFn && (entry.type === 'graph' || entry.type === 'function')) {
         items.push({
@@ -1238,10 +1248,13 @@ export class ExpressionManager {
           fn: entry.compiledFn,
           visible: entry.visible !== false,
           lineStyle: entry.lineStyle || 'solid',
-          orientation: entry.graphOrientation
+          orientation: entry.graphOrientation,
+          layer: entry.layer ?? 1
         });
       }
     }
+    // Stable sort items by layer so higher layers render on top
+    items.sort((a, b) => (a.layer ?? 1) - (b.layer ?? 1));
     return items;
   }
 }
