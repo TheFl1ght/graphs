@@ -146,6 +146,7 @@ export interface HistorySnapshot {
 export class ExpressionManager {
   public scope: Scope;
   public entries: ExpressionEntry[] = [];
+  public onUpdate?: () => void;
   public colorPalette: string[] = [
     '#2d70b3', // Desmos Blue
     '#c74440', // Desmos Red
@@ -713,6 +714,7 @@ export class ExpressionManager {
     entry.regressions.push(reg);
     entry.regressionsCollapsed = false;
     this.evaluateTable(entry);
+    this.onUpdate?.();
     return reg;
   }
 
@@ -721,6 +723,7 @@ export class ExpressionManager {
     if (!entry || !entry.regressions) return;
     entry.regressions = entry.regressions.filter(r => r.id !== regId);
     this.evaluateTable(entry);
+    this.onUpdate?.();
   }
 
   public updateTableRegression(tableId: string, regId: string, updates: Partial<TableRegression>): void {
@@ -730,6 +733,7 @@ export class ExpressionManager {
     if (!reg) return;
     Object.assign(reg, updates);
     this.evaluateTable(entry);
+    this.onUpdate?.();
   }
 
   public toggleTableRegressionsCollapsed(tableId: string): boolean {
@@ -996,6 +1000,8 @@ export class ExpressionManager {
         this.evaluateTable(entry, availableVars);
       }
     }
+
+    this.onUpdate?.();
   }
 
   private detectMissingParams(entry: ExpressionEntry, node: ASTNode, boundParams: Set<string>): void {
@@ -1128,6 +1134,7 @@ export class ExpressionManager {
     const entry = this.entries.find(e => e.id === id);
     if (!entry) return false;
     entry.visible = entry.visible === false ? true : false;
+    this.onUpdate?.();
     return entry.visible;
   }
 
@@ -1135,12 +1142,14 @@ export class ExpressionManager {
     const entry = this.entries.find(e => e.id === id);
     if (!entry) return;
     entry.color = color;
+    this.onUpdate?.();
   }
 
   public setEntryLineStyle(id: string, style: LineStyle): void {
     const entry = this.entries.find(e => e.id === id);
     if (!entry) return;
     entry.lineStyle = style;
+    this.onUpdate?.();
   }
 
   public getPlottableItems(): GraphItem[] {

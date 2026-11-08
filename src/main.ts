@@ -366,6 +366,9 @@ class App {
     this.camera = new Camera2D(rect.width || 800, rect.height || 600);
     this.renderer = new GraphRenderer(this.canvas);
     this.exprManager = new ExpressionManager();
+    this.exprManager.onUpdate = () => {
+      this.requestRender();
+    };
 
     this.setupResizeObserver();
     this.setupInteractions();
@@ -3279,6 +3282,8 @@ class App {
         if (!isNaN(val) && val < (entry.sliderMax ?? 10)) {
           entry.sliderMin = val;
           rangeInput.min = val.toString();
+          this.requestRender();
+          this.pushHistory(false);
         } else {
           minInput.value = (entry.sliderMin ?? -10).toString();
         }
@@ -3298,6 +3303,8 @@ class App {
         if (!isNaN(val) && val > (entry.sliderMin ?? -10)) {
           entry.sliderMax = val;
           rangeInput.max = val.toString();
+          this.requestRender();
+          this.pushHistory(false);
         } else {
           maxInput.value = (entry.sliderMax ?? 10).toString();
         }
@@ -3317,6 +3324,8 @@ class App {
         if (!isNaN(val) && val > 0) {
           entry.sliderStep = val;
           rangeInput.step = val.toString();
+          this.requestRender();
+          this.pushHistory(false);
         } else {
           stepInput.value = (entry.sliderStep ?? 0.05).toString();
         }

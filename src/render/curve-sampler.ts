@@ -162,8 +162,8 @@ export class CurveSampler {
       const dMid = (this.safeEval(fn, xm + eps) - this.safeEval(fn, xm - eps)) / (2 * eps);
       const secantSlope = (y1 - y0) / (x1 - x0);
 
-      // Branch cut / asymptote wrap-around
-      if (Number.isFinite(dMid) && secantSlope * dMid < 0) {
+      // Branch cut / asymptote wrap-around: only if dyPx is non-trivial so sub-pixel sign flips don't create fake vertical lines
+      if (dyPx > 5 && Number.isFinite(dMid) && secantSlope * dMid < 0) {
         return true;
       }
 
@@ -216,6 +216,7 @@ export class CurveSampler {
     strokes: Point2D[][]
   ): void {
     const h = camera.screenHeight;
+    const pixelSize = 1 / camera.zoom;
     let isAsymptote = false;
 
     // 1. Locate the exact discontinuity / asymptote location xa in [x0, x1]
@@ -226,6 +227,7 @@ export class CurveSampler {
     let xa = (x0 + x1) * 0.5;
 
     for (let i = 0; i < 35; i++) {
+      if (Math.abs(r - l) < 0.25 * pixelSize) break;
       const m = (l + r) * 0.5;
       const ym = this.safeEval(fn, m);
       if (!Number.isFinite(ym)) {
@@ -276,19 +278,27 @@ export class CurveSampler {
     // 2. Trace left branch from x0 towards xa until it exits the screen
     let lowL = x0;
     let highL = xa;
-    for (let i = 0; i < 40; i++) {
+    let bestXL = x0;
+    let bestYL = y0;
+    let bestSmL = _s0;
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(highL - lowL) < 0.25 * pixelSize) break;
       const m = (lowL + highL) * 0.5;
       const ym = this.safeEval(fn, m);
       if (Number.isFinite(ym) && (Math.sign(y0) === 0 || Math.sign(ym) === Math.sign(y0))) {
-        const sm = camera.worldToScreen(m, ym);
-        currentStroke.push(sm);
         lowL = m;
-        if (this.isOffScreen(sm.y, h)) {
+        bestXL = m;
+        bestYL = ym;
+        bestSmL = camera.worldToScreen(m, ym);
+        if (this.isOffScreen(bestSmL.y, h)) {
           break;
         }
       } else {
         highL = m;
       }
+    }
+    if (bestSmL !== _s0) {
+      this.subdivide(fn, camera, x0, y0, _s0, bestXL, bestYL, bestSmL, 0, currentStroke);
     }
     if (currentStroke.length > 0) {
       strokes.push(currentStroke);
@@ -300,16 +310,16 @@ export class CurveSampler {
     let bestY = y1;
     let lowR = xa;
     let highR = x1;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(highR - lowR) < 0.25 * pixelSize) break;
       const m = (lowR + highR) * 0.5;
       const ym = this.safeEval(fn, m);
       if (Number.isFinite(ym) && (Math.sign(y1) === 0 || Math.sign(ym) === Math.sign(y1))) {
-        const sm = camera.worldToScreen(m, ym);
-        bestStart = sm;
+        bestStart = camera.worldToScreen(m, ym);
         bestX = m;
         bestY = ym;
         highR = m;
-        if (this.isOffScreen(sm.y, h)) {
+        if (this.isOffScreen(bestStart.y, h)) {
           break;
         }
       } else {
@@ -320,7 +330,9 @@ export class CurveSampler {
     const rightStroke: Point2D[] = [];
     if (bestStart) {
       rightStroke.push(bestStart);
-      this.subdivide(fn, camera, bestX, bestY, bestStart, x1, y1, s1, 0, rightStroke);
+      if (bestStart !== s1) {
+        this.subdivide(fn, camera, bestX, bestY, bestStart, x1, y1, s1, 0, rightStroke);
+      }
     } else {
       rightStroke.push(s1);
     }
@@ -331,27 +343,38 @@ export class CurveSampler {
     fn: CompiledFunction,
     camera: Camera2D,
     x0: number,
-    _y0: number,
-    _s0: Point2D,
+    y0: number,
+    s0: Point2D,
     x1: number,
     stroke: Point2D[]
   ): void {
     const h = camera.screenHeight;
+    const pixelSize = 1 / camera.zoom;
     let low = x0;
     let high = x1;
-    for (let i = 0; i < 40; i++) {
+    let bestX = x0;
+    let bestY = y0;
+    let bestSm = s0;
+
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(high - low) < 0.25 * pixelSize) break;
       const mid = (low + high) * 0.5;
       const ym = this.safeEval(fn, mid);
       if (Number.isFinite(ym)) {
         low = mid;
-        const sm = camera.worldToScreen(mid, ym);
-        stroke.push(sm);
-        if (this.isOffScreen(sm.y, h)) {
+        bestX = mid;
+        bestY = ym;
+        bestSm = camera.worldToScreen(mid, ym);
+        if (this.isOffScreen(bestSm.y, h)) {
           break;
         }
       } else {
         high = mid;
       }
+    }
+
+    if (bestSm !== s0) {
+      this.subdivide(fn, camera, x0, y0, s0, bestX, bestY, bestSm, 0, stroke);
     }
   }
 
@@ -365,20 +388,22 @@ export class CurveSampler {
     stroke: Point2D[]
   ): void {
     const h = camera.screenHeight;
+    const pixelSize = 1 / camera.zoom;
     let low = x0;
     let high = x1;
     let bestX = x1;
     let bestY = y1;
     let bestS = s1;
 
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(high - low) < 0.25 * pixelSize) break;
       const mid = (low + high) * 0.5;
       const ym = this.safeEval(fn, mid);
       if (Number.isFinite(ym)) {
+        high = mid;
         bestX = mid;
         bestY = ym;
         bestS = camera.worldToScreen(mid, ym);
-        high = mid;
         if (this.isOffScreen(bestS.y, h)) {
           break;
         }
@@ -388,7 +413,9 @@ export class CurveSampler {
     }
 
     stroke.push(bestS);
-    this.subdivide(fn, camera, bestX, bestY, bestS, x1, y1, s1, 0, stroke);
+    if (bestS !== s1) {
+      this.subdivide(fn, camera, bestX, bestY, bestS, x1, y1, s1, 0, stroke);
+    }
   }
 
   /**
@@ -449,8 +476,10 @@ export class CurveSampler {
       distSq = dx * dx + dy * dy;
     }
 
-    // If curvature deviation exceeds tolerance in pixels, subdivide recursively
-    if (distSq > this.tolerancePx * this.tolerancePx) {
+    const vertDev = Math.abs(sm.y - (s0.y + s1.y) * 0.5);
+
+    // If curvature deviation or vertical chord deviation exceeds tolerance in pixels, subdivide recursively
+    if (distSq > this.tolerancePx * this.tolerancePx || vertDev > this.tolerancePx * 2) {
       this.subdivide(fn, camera, x0, y0, s0, xm, ym, sm, depth + 1, stroke);
       this.subdivide(fn, camera, xm, ym, sm, x1, y1, s1, depth + 1, stroke);
     } else {
@@ -577,7 +606,7 @@ export class CurveSampler {
       const dMid = (this.safeEval(fn, ym + eps) - this.safeEval(fn, ym - eps)) / (2 * eps);
       const secantSlope = (x1 - x0) / (y1 - y0);
 
-      if (Number.isFinite(dMid) && secantSlope * dMid < 0) {
+      if (dxPx > 5 && Number.isFinite(dMid) && secantSlope * dMid < 0) {
         return true;
       }
 
@@ -624,6 +653,7 @@ export class CurveSampler {
     strokes: Point2D[][]
   ): void {
     const w = camera.screenWidth;
+    const pixelSize = 1 / camera.zoom;
     let isAsymptote = false;
 
     let l = y0;
@@ -633,6 +663,7 @@ export class CurveSampler {
     let ya = (y0 + y1) * 0.5;
 
     for (let i = 0; i < 35; i++) {
+      if (Math.abs(r - l) < 0.25 * pixelSize) break;
       const m = (l + r) * 0.5;
       const xm = this.safeEval(fn, m);
       if (!Number.isFinite(xm)) {
@@ -680,19 +711,27 @@ export class CurveSampler {
 
     let lowL = y0;
     let highL = ya;
-    for (let i = 0; i < 40; i++) {
+    let bestYL = y0;
+    let bestXL = x0;
+    let bestSmL = _s0;
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(highL - lowL) < 0.25 * pixelSize) break;
       const m = (lowL + highL) * 0.5;
       const xm = this.safeEval(fn, m);
       if (Number.isFinite(xm) && (Math.sign(x0) === 0 || Math.sign(xm) === Math.sign(x0))) {
-        const sm = camera.worldToScreen(xm, m);
-        currentStroke.push(sm);
         lowL = m;
-        if (this.isOffScreenX(sm.x, w)) {
+        bestYL = m;
+        bestXL = xm;
+        bestSmL = camera.worldToScreen(xm, m);
+        if (this.isOffScreenX(bestSmL.x, w)) {
           break;
         }
       } else {
         highL = m;
       }
+    }
+    if (bestSmL !== _s0) {
+      this.subdivideY(fn, camera, y0, x0, _s0, bestYL, bestXL, bestSmL, 0, currentStroke);
     }
     if (currentStroke.length > 0) {
       strokes.push(currentStroke);
@@ -703,16 +742,16 @@ export class CurveSampler {
     let bestX = x1;
     let lowR = ya;
     let highR = y1;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(highR - lowR) < 0.25 * pixelSize) break;
       const m = (lowR + highR) * 0.5;
       const xm = this.safeEval(fn, m);
       if (Number.isFinite(xm) && (Math.sign(x1) === 0 || Math.sign(xm) === Math.sign(x1))) {
-        const sm = camera.worldToScreen(xm, m);
-        bestStart = sm;
+        bestStart = camera.worldToScreen(xm, m);
         bestY = m;
         bestX = xm;
         highR = m;
-        if (this.isOffScreenX(sm.x, w)) {
+        if (this.isOffScreenX(bestStart.x, w)) {
           break;
         }
       } else {
@@ -723,7 +762,9 @@ export class CurveSampler {
     const rightStroke: Point2D[] = [];
     if (bestStart) {
       rightStroke.push(bestStart);
-      this.subdivideY(fn, camera, bestY, bestX, bestStart, y1, x1, s1, 0, rightStroke);
+      if (bestStart !== s1) {
+        this.subdivideY(fn, camera, bestY, bestX, bestStart, y1, x1, s1, 0, rightStroke);
+      }
     } else {
       rightStroke.push(s1);
     }
@@ -734,27 +775,38 @@ export class CurveSampler {
     fn: CompiledFunction,
     camera: Camera2D,
     y0: number,
-    _x0: number,
-    _s0: Point2D,
+    x0: number,
+    s0: Point2D,
     y1: number,
     stroke: Point2D[]
   ): void {
     const w = camera.screenWidth;
+    const pixelSize = 1 / camera.zoom;
     let low = y0;
     let high = y1;
-    for (let i = 0; i < 40; i++) {
+    let bestY = y0;
+    let bestX = x0;
+    let bestSm = s0;
+
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(high - low) < 0.25 * pixelSize) break;
       const mid = (low + high) * 0.5;
       const xm = this.safeEval(fn, mid);
       if (Number.isFinite(xm)) {
         low = mid;
-        const sm = camera.worldToScreen(xm, mid);
-        stroke.push(sm);
-        if (this.isOffScreenX(sm.x, w)) {
+        bestY = mid;
+        bestX = xm;
+        bestSm = camera.worldToScreen(xm, mid);
+        if (this.isOffScreenX(bestSm.x, w)) {
           break;
         }
       } else {
         high = mid;
       }
+    }
+
+    if (bestSm !== s0) {
+      this.subdivideY(fn, camera, y0, x0, s0, bestY, bestX, bestSm, 0, stroke);
     }
   }
 
@@ -768,13 +820,15 @@ export class CurveSampler {
     stroke: Point2D[]
   ): void {
     const w = camera.screenWidth;
+    const pixelSize = 1 / camera.zoom;
     let low = y0;
     let high = y1;
     let bestY = y1;
     let bestX = x1;
     let bestS = s1;
 
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 35; i++) {
+      if (Math.abs(high - low) < 0.25 * pixelSize) break;
       const mid = (low + high) * 0.5;
       const xm = this.safeEval(fn, mid);
       if (Number.isFinite(xm)) {
@@ -791,7 +845,9 @@ export class CurveSampler {
     }
 
     stroke.push(bestS);
-    this.subdivideY(fn, camera, bestY, bestX, bestS, y1, x1, s1, 0, stroke);
+    if (bestS !== s1) {
+      this.subdivideY(fn, camera, bestY, bestX, bestS, y1, x1, s1, 0, stroke);
+    }
   }
 
   private subdivideY(
@@ -847,7 +903,9 @@ export class CurveSampler {
       distSq = dx * dx + dy * dy;
     }
 
-    if (distSq > this.tolerancePx * this.tolerancePx) {
+    const horizDev = Math.abs(sm.x - (s0.x + s1.x) * 0.5);
+
+    if (distSq > this.tolerancePx * this.tolerancePx || horizDev > this.tolerancePx * 2) {
       this.subdivideY(fn, camera, y0, x0, s0, ym, xm, sm, depth + 1, stroke);
       this.subdivideY(fn, camera, ym, xm, sm, y1, x1, s1, depth + 1, stroke);
     } else {
