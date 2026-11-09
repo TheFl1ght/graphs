@@ -98,6 +98,70 @@ function purgeLtGtShortcuts(mf: any) {
   } catch (_) {}
 }
 
+function getMatrixCellInfo(model: any) {
+  if (!model) return null;
+  const pos = model.position;
+  let atom = model.at?.(pos) || (model.anchor !== undefined ? model.at?.(model.anchor) : undefined);
+  if (!atom) return null;
+  while (atom && atom.parent?.type !== 'array') {
+    atom = atom.parent;
+  }
+  if (!atom || atom.parent?.type !== 'array') return null;
+  const arrayAtom = atom.parent;
+  const branch = atom.parentBranch;
+  if (!Array.isArray(branch) || branch.length < 2) return null;
+  const [row, col] = branch;
+  return { arrayAtom, row, col, cellRootAtom: atom };
+}
+
+function isCellEmptyOrPlaceholder(contentAtoms: any[]): boolean {
+  if (contentAtoms.length === 0) return true;
+  if (contentAtoms.length === 1 && contentAtoms[0].type === 'placeholder') return true;
+  return false;
+}
+
+function navigateToMatrixCell(
+  mf: any,
+  targetRow: number,
+  targetCol: number
+): boolean {
+  const model = (mf as any)._mathfield?.model || (mf as any).model;
+  if (!model) return false;
+  const cell = getMatrixCellInfo(model);
+  if (!cell) return false;
+
+  const arrayAtom = cell.arrayAtom;
+  const rowCount = arrayAtom.rowCount;
+  const colCount = arrayAtom.colCount;
+
+  if (targetRow < 0 || targetRow >= rowCount || targetCol < 0 || targetCol >= colCount) {
+    return false;
+  }
+
+  const cellAtoms: any[] = arrayAtom.getCell?.(targetRow, targetCol) ||
+    arrayAtom._rows?.[targetRow]?.[targetCol] || [];
+  if (cellAtoms.length === 0) return false;
+
+  const contentAtoms = cellAtoms.filter((a: any) => a.type !== 'first');
+  const isPlaceholder = isCellEmptyOrPlaceholder(contentAtoms);
+
+  if (typeof (mf as any)._setLastMatrixCell === 'function') {
+    (mf as any)._setLastMatrixCell(arrayAtom, targetRow, targetCol);
+  }
+
+  if (isPlaceholder) {
+    const phAtom = contentAtoms.find((a: any) => a.type === 'placeholder');
+    const targetOffset = phAtom ? model.offsetOf(phAtom) : model.offsetOf(cellAtoms[cellAtoms.length - 1]);
+    model.setSelection(targetOffset, targetOffset);
+  } else {
+    const startOffset = model.offsetOf(cellAtoms[0]);
+    const endOffset = model.offsetOf(cellAtoms[cellAtoms.length - 1]);
+    model.setSelection(startOffset, endOffset);
+  }
+  mf.focus?.();
+  return true;
+}
+
 function setupMathField(mf: any) {
   mf.mathVirtualKeyboardPolicy = 'manual';
   mf.smartFence = true;
@@ -113,7 +177,7 @@ function setupMathField(mf: any) {
         style.textContent = `
           .ML__placeholder {
             color: #94a3b8 !important;
-            opacity: 0.55 !important;
+            opacity: 0.65 !important;
             font-family: KaTeX_Main, 'Times New Roman', serif !important;
             font-style: normal !important;
             font-weight: normal !important;
@@ -126,11 +190,23 @@ function setupMathField(mf: any) {
           .ML__focused .ML__placeholder.ML__placeholder-selected,
           .ML__focused .ML__selected .ML__placeholder,
           .ML__focused .ML__placeholder.ML__selected,
-          .ML__focused .ML__selected:has(.ML__placeholder) {
+          .ML__focused .ML__selected:has(.ML__placeholder),
+          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) .ML__placeholder,
+          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder {
             background: transparent !important;
             background-color: transparent !important;
-            color: #94a3b8 !important;
-            opacity: 0.55 !important;
+            color: transparent !important;
+            opacity: 0 !important;
+          }
+          .ML__focused:has(.ML__placeholder-selected) .ML__selection,
+          .ML__focused:has(.ML__placeholder.ML__selected) .ML__selection {
+            background: transparent !important;
+          }
+          .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected) {
+            border-bottom: 2px solid #2d70b3 !important;
+            margin-bottom: -2px !important;
+            min-width: 0.7em !important;
+            text-align: center !important;
           }
         `;
         mf.shadowRoot.appendChild(style);
@@ -147,6 +223,104 @@ function setupMathField(mf: any) {
   mf.addEventListener('mount', () => purgeLtGtShortcuts(mf));
   requestAnimationFrame(() => purgeLtGtShortcuts(mf));
   setTimeout(() => purgeLtGtShortcuts(mf), 0);
+
+  // Matrix cell selection management
+  let lastMatrixCell: { array: any; row: number; col: number } | null = null;
+  let isHandlingCellSelection = false;
+
+  (mf as any)._setLastMatrixCell = (array: any, row: number, col: number) => {
+    lastMatrixCell = { array, row, col };
+  };
+
+  const handleMatrixCellSelection = () => {
+    if (isHandlingCellSelection) return;
+    const model = (mf as any)._mathfield?.model || (mf as any).model;
+    if (!model) return;
+
+    const cell = getMatrixCellInfo(model);
+    if (!cell) {
+      lastMatrixCell = null;
+      return;
+    }
+
+    const isDifferentCell = !lastMatrixCell ||
+      lastMatrixCell.array !== cell.arrayAtom ||
+      lastMatrixCell.row !== cell.row ||
+      lastMatrixCell.col !== cell.col;
+
+    if (!isDifferentCell) return;
+
+    lastMatrixCell = {
+      array: cell.arrayAtom,
+      row: cell.row,
+      col: cell.col
+    };
+
+    const cellAtoms: any[] = cell.arrayAtom.getCell?.(cell.row, cell.col) ||
+      cell.arrayAtom._rows?.[cell.row]?.[cell.col] || [];
+    if (cellAtoms.length === 0) return;
+
+    const contentAtoms = cellAtoms.filter((a: any) => a.type !== 'first');
+    const isPlaceholder = isCellEmptyOrPlaceholder(contentAtoms);
+
+    isHandlingCellSelection = true;
+    try {
+      if (isPlaceholder) {
+        const phAtom = contentAtoms.find((a: any) => a.type === 'placeholder');
+        const targetOffset = phAtom ? model.offsetOf(phAtom) : model.offsetOf(cellAtoms[cellAtoms.length - 1]);
+        model.setSelection(targetOffset, targetOffset);
+      } else {
+        const startOffset = model.offsetOf(cellAtoms[0]);
+        const endOffset = model.offsetOf(cellAtoms[cellAtoms.length - 1]);
+        model.setSelection(startOffset, endOffset);
+      }
+    } catch (_) {
+    } finally {
+      isHandlingCellSelection = false;
+    }
+  };
+
+  mf.addEventListener('selection-change', handleMatrixCellSelection);
+  mf.addEventListener('focus', () => { setTimeout(handleMatrixCellSelection, 0); });
+  mf.addEventListener('blur', () => { lastMatrixCell = null; });
+  mf.addEventListener('pointerup', () => { setTimeout(handleMatrixCellSelection, 0); });
+
+  // Tab & Shift+Tab within matrix
+  mf.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const model = (mf as any)._mathfield?.model || (mf as any).model;
+      const matrixCell = getMatrixCellInfo(model);
+      if (matrixCell) {
+        const rowCount = matrixCell.arrayAtom.rowCount;
+        const colCount = matrixCell.arrayAtom.colCount;
+        if (!e.shiftKey) {
+          let nextRow = matrixCell.row;
+          let nextCol = matrixCell.col + 1;
+          if (nextCol >= colCount) {
+            nextCol = 0;
+            nextRow++;
+          }
+          if (nextRow < rowCount) {
+            e.preventDefault();
+            e.stopPropagation();
+            navigateToMatrixCell(mf, nextRow, nextCol);
+          }
+        } else {
+          let prevRow = matrixCell.row;
+          let prevCol = matrixCell.col - 1;
+          if (prevCol < 0) {
+            prevCol = colCount - 1;
+            prevRow--;
+          }
+          if (prevRow >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            navigateToMatrixCell(mf, prevRow, prevCol);
+          }
+        }
+      }
+    }
+  });
 }
 
 if (typeof window !== 'undefined') {
@@ -168,7 +342,7 @@ if (typeof window !== 'undefined') {
               style.textContent = `
                 .ML__placeholder {
                   color: #94a3b8 !important;
-                  opacity: 0.55 !important;
+                  opacity: 0.65 !important;
                   font-family: KaTeX_Main, 'Times New Roman', serif !important;
                   font-style: normal !important;
                   font-weight: normal !important;
@@ -181,11 +355,23 @@ if (typeof window !== 'undefined') {
                 .ML__focused .ML__placeholder.ML__placeholder-selected,
                 .ML__focused .ML__selected .ML__placeholder,
                 .ML__focused .ML__placeholder.ML__selected,
-                .ML__focused .ML__selected:has(.ML__placeholder) {
+                .ML__focused .ML__selected:has(.ML__placeholder),
+                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) .ML__placeholder,
+                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder {
                   background: transparent !important;
                   background-color: transparent !important;
-                  color: #94a3b8 !important;
-                  opacity: 0.55 !important;
+                  color: transparent !important;
+                  opacity: 0 !important;
+                }
+                .ML__focused:has(.ML__placeholder-selected) .ML__selection,
+                .ML__focused:has(.ML__placeholder.ML__selected) .ML__selection {
+                  background: transparent !important;
+                }
+                .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected) {
+                  border-bottom: 2px solid #2d70b3 !important;
+                  margin-bottom: -2px !important;
+                  min-width: 0.7em !important;
+                  text-align: center !important;
                 }
               `;
               this.shadowRoot.appendChild(style);
@@ -954,10 +1140,81 @@ class App {
     });
 
     mf.addEventListener('keydown', (e: KeyboardEvent) => {
+      const model = (mf as any)._mathfield?.model || (mf as any).model;
+      const matrixCell = getMatrixCellInfo(model);
+
+      // Matrix navigation shortcuts
+      if (matrixCell && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === 'ArrowDown' && !e.shiftKey) {
+          if (matrixCell.row < matrixCell.arrayAtom.rowCount - 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            navigateToMatrixCell(mf, matrixCell.row + 1, matrixCell.col);
+            return;
+          }
+        } else if (e.key === 'ArrowUp' && !e.shiftKey) {
+          if (matrixCell.row > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            navigateToMatrixCell(mf, matrixCell.row - 1, matrixCell.col);
+            return;
+          }
+        } else if (e.key === 'Enter') {
+          const rowCount = matrixCell.arrayAtom.rowCount;
+          const colCount = matrixCell.arrayAtom.colCount;
+          let nextRow = matrixCell.row;
+          let nextCol = matrixCell.col + 1;
+          if (nextCol >= colCount) {
+            nextCol = 0;
+            nextRow++;
+          }
+          if (nextRow < rowCount) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            navigateToMatrixCell(mf, nextRow, nextCol);
+            return;
+          }
+        } else if (e.key === 'Tab') {
+          const rowCount = matrixCell.arrayAtom.rowCount;
+          const colCount = matrixCell.arrayAtom.colCount;
+          if (!e.shiftKey) {
+            let nextRow = matrixCell.row;
+            let nextCol = matrixCell.col + 1;
+            if (nextCol >= colCount) {
+              nextCol = 0;
+              nextRow++;
+            }
+            if (nextRow < rowCount) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, nextRow, nextCol);
+              return;
+            }
+          } else {
+            let prevRow = matrixCell.row;
+            let prevCol = matrixCell.col - 1;
+            if (prevCol < 0) {
+              prevCol = colCount - 1;
+              prevRow--;
+            }
+            if (prevRow >= 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, prevRow, prevCol);
+              return;
+            }
+          }
+        }
+      }
+
       // Exit subscript if operator key is typed: y_1| -> typing '+' results in y_1 + |
       const opKeys = ['+', '-', '*', '/', '=', '(', ')', '<', '>', ','];
       if (opKeys.includes(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const model = (mf as any)._mathfield?.model || (mf as any).model;
         if (model) {
           const atom = model.at?.(model.position);
           if (atom && !isInsideBigOpLimit(atom) && (atom.parentBranch === 'subscript' || atom.parent?.parentBranch === 'subscript')) {
