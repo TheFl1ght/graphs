@@ -31,7 +31,7 @@ interface SampleX {
  * - Geometric screen-margin boundary clipping: curves terminate cleanly at the viewport margin
  *   without artificial spikes, bridging lines across asymptotes, or mid-air terminations.
  * - Exact bisection of domain boundaries (e.g., sqrt(x) at x = 0) and boundary crossings.
- * - Deep hidden-pole discovery (e.g. Gamma function across integer poles where lobe width is sub-pixel).
+ * - Deep hidden-pole discovery and symmetric dual-branch isolation (e.g. Gamma function across integer poles).
  * - Step-jump discontinuity splitting (e.g., floor, ceil, sign) without vertical riser artifacts.
  * - Adaptive curvature subdivision bounded by maximum recursion depth.
  */
@@ -90,104 +90,62 @@ export class CurveSampler {
     return { y, x: xVal, sx, sy, valid: true, type };
   }
 
-  private findBoundaryCrossingY(
+  private findCrossingY(
     fn: CompiledFunction,
     camera: Camera2D,
-    pIn: SampleY,
-    pOut: SampleY
+    xIn: number,
+    xOut: number,
+    targetSy: number
   ): Point2D {
-    const targetSy = pOut.type === 'above' ? -this.margin : camera.screenHeight + this.margin;
-    let xIn = pIn.x;
-    let xOut = pOut.x;
+    let xin = xIn;
+    let xout = xOut;
+    const minY = -this.margin;
+    const maxY = camera.screenHeight + this.margin;
 
     for (let i = 0; i < 30; i++) {
-      const xMid = (xIn + xOut) * 0.5;
+      const xMid = (xin + xout) * 0.5;
       const sMid = this.evalSampleY(fn, camera, xMid);
       if (!sMid.valid) {
-        xOut = xMid;
-      } else if (sMid.type === 'inside') {
-        xIn = xMid;
+        xout = xMid;
+      } else if (sMid.sy >= minY && sMid.sy <= maxY) {
+        xin = xMid;
       } else {
-        xOut = xMid;
+        xout = xMid;
       }
     }
 
-    const xFinal = (xIn + xOut) * 0.5;
+    const xFinal = (xin + xout) * 0.5;
     const sxFinal = camera.worldToScreen(xFinal, 0).x;
     return { x: sxFinal, y: targetSy };
   }
 
-  private findBoundaryCrossingX(
+  private findCrossingX(
     fn: CompiledFunction,
     camera: Camera2D,
-    pIn: SampleX,
-    pOut: SampleX
+    yIn: number,
+    yOut: number,
+    targetSx: number
   ): Point2D {
-    const targetSx = pOut.type === 'left' ? -this.margin : camera.screenWidth + this.margin;
-    let yIn = pIn.y;
-    let yOut = pOut.y;
+    let yin = yIn;
+    let yout = yOut;
+    const minX = -this.margin;
+    const maxX = camera.screenWidth + this.margin;
 
     for (let i = 0; i < 30; i++) {
-      const yMid = (yIn + yOut) * 0.5;
+      const yMid = (yin + yout) * 0.5;
       const sMid = this.evalSampleX(fn, camera, yMid);
       if (!sMid.valid) {
-        yOut = yMid;
-      } else if (sMid.type === 'inside') {
-        yIn = yMid;
+        yout = yMid;
+      } else if (sMid.sx >= minX && sMid.sx <= maxX) {
+        yin = yMid;
       } else {
-        yOut = yMid;
+        yout = yMid;
       }
     }
 
-    const yFinal = (yIn + yOut) * 0.5;
+    const yFinal = (yin + yout) * 0.5;
     const syFinal = camera.worldToScreen(0, yFinal).y;
     return { x: targetSx, y: syFinal };
-  }
-
-  private findDomainBoundaryY(
-    fn: CompiledFunction,
-    camera: Camera2D,
-    pValid: SampleY,
-    pInvalid: SampleY
-  ): Point2D {
-    let xVal = pValid.x;
-    let xInval = pInvalid.x;
-    let best = pValid;
-
-    for (let i = 0; i < 30; i++) {
-      const xMid = (xVal + xInval) * 0.5;
-      const sMid = this.evalSampleY(fn, camera, xMid);
-      if (sMid.valid) {
-        xVal = xMid;
-        best = sMid;
-      } else {
-        xInval = xMid;
-      }
-    }
-    return { x: best.sx, y: best.sy };
-  }
-
-  private findDomainBoundaryX(
-    fn: CompiledFunction,
-    camera: Camera2D,
-    pValid: SampleX,
-    pInvalid: SampleX
-  ): Point2D {
-    let yVal = pValid.y;
-    let yInval = pInvalid.y;
-    let best = pValid;
-
-    for (let i = 0; i < 30; i++) {
-      const yMid = (yVal + yInval) * 0.5;
-      const sMid = this.evalSampleX(fn, camera, yMid);
-      if (sMid.valid) {
-        yVal = yMid;
-        best = sMid;
-      } else {
-        yInval = yMid;
-      }
-    }
-    return { x: best.sx, y: best.sy };
   }
 
   public sample(
@@ -203,6 +161,7 @@ export class CurveSampler {
 
   private sampleYOfX(fn: CompiledFunction, camera: Camera2D): Point2D[][] {
     const w = camera.screenWidth;
+    const h = camera.screenHeight;
     const strokes: Point2D[][] = [];
     let currentStroke: Point2D[] = [];
 
@@ -215,7 +174,7 @@ export class CurveSampler {
 
     const clampPoint = (p: Point2D): Point2D => {
       const minY = -this.margin;
-      const maxY = camera.screenHeight + this.margin;
+      const maxY = h + this.margin;
       return {
         x: p.x,
         y: Math.max(minY, Math.min(maxY, p.y))
@@ -231,6 +190,38 @@ export class CurveSampler {
       currentStroke.push(clampPoint(p));
     };
 
+    /**
+     * Symmetrically handles an asymptote pole between p0 and p1:
+     * - Left branch (up to pole) terminates at targetSyL (top/bottom margin)
+     * - Right branch (from pole onwards) begins at targetSyR (top/bottom margin)
+     * Neither branch is omitted, and no bridging line connects them.
+     */
+    const handlePoleCrossing = (
+      p0: SampleY,
+      p1: SampleY,
+      l: number,
+      r: number,
+      yL: number,
+      yR: number
+    ) => {
+      if (p0.type === 'inside') {
+        const targetSyL = yL > 0 ? -this.margin : h + this.margin;
+        const crossL = this.findCrossingY(fn, camera, p0.x, l, targetSyL);
+        if (currentStroke.length === 0) {
+          startStroke({ x: p0.sx, y: p0.sy });
+        }
+        addPoint(crossL);
+      }
+      flush();
+
+      if (p1.type === 'inside') {
+        const targetSyR = yR > 0 ? -this.margin : h + this.margin;
+        const crossR = this.findCrossingY(fn, camera, p1.x, r, targetSyR);
+        startStroke(crossR);
+        addPoint({ x: p1.sx, y: p1.sy });
+      }
+    };
+
     const processInterval = (p0: SampleY, p1: SampleY, depth: number) => {
       // 1. Both invalid -> nothing on screen
       if (!p0.valid && !p1.valid) {
@@ -238,20 +229,55 @@ export class CurveSampler {
         return;
       }
 
-      // 2. One valid, one invalid -> finite domain boundary
+      // 2. One valid, one invalid -> finite domain boundary OR exact pole hit
       if (p0.valid && !p1.valid) {
+        let l = p0.x, r = p1.x;
+        let sL = p0;
+        for (let i = 0; i < 35; i++) {
+          const m = (l + r) * 0.5;
+          const sm = this.evalSampleY(fn, camera, m);
+          if (sm.valid) {
+            l = m;
+            sL = sm;
+          } else {
+            r = m;
+          }
+        }
         if (p0.type === 'inside') {
-          const b = this.findDomainBoundaryY(fn, camera, p0, p1);
-          addPoint(b);
+          if (sL.type !== 'inside') {
+            const targetSy = sL.y > 0 ? -this.margin : h + this.margin;
+            const cross = this.findCrossingY(fn, camera, p0.x, l, targetSy);
+            addPoint(cross);
+          } else {
+            addPoint({ x: sL.sx, y: sL.sy });
+          }
         }
         flush();
         return;
       }
+
       if (!p0.valid && p1.valid) {
         flush();
+        let l = p0.x, r = p1.x;
+        let sR = p1;
+        for (let i = 0; i < 35; i++) {
+          const m = (l + r) * 0.5;
+          const sm = this.evalSampleY(fn, camera, m);
+          if (sm.valid) {
+            r = m;
+            sR = sm;
+          } else {
+            l = m;
+          }
+        }
         if (p1.type === 'inside') {
-          const b = this.findDomainBoundaryY(fn, camera, p1, p0);
-          startStroke(b);
+          if (sR.type !== 'inside') {
+            const targetSy = sR.y > 0 ? -this.margin : h + this.margin;
+            const cross = this.findCrossingY(fn, camera, p1.x, r, targetSy);
+            startStroke(cross);
+          } else {
+            startStroke({ x: sR.sx, y: sR.sy });
+          }
           addPoint({ x: p1.sx, y: p1.sy });
         }
         return;
@@ -272,7 +298,7 @@ export class CurveSampler {
         return;
       }
 
-      // 4. One above, one below -> asymptote pole or steep continuous crossing
+      // 4. One above, one below -> pole or steep continuous crossing
       if ((p0.type === 'above' && p1.type === 'below') || (p0.type === 'below' && p1.type === 'above')) {
         const xm = (p0.x + p1.x) * 0.5;
         const pm = this.evalSampleY(fn, camera, xm);
@@ -282,12 +308,8 @@ export class CurveSampler {
         const isAsymptote = !pm.valid || (Number.isFinite(dMid) && secantSlope * dMid < 0);
 
         if (isAsymptote) {
-          if (depth < this.maxDepth) {
-            processInterval(p0, pm, depth + 1);
-            processInterval(pm, p1, depth + 1);
-          } else {
-            flush();
-          }
+          // Pole between above and below: both sides are already offscreen, no stroke crossing
+          flush();
           return;
         }
 
@@ -295,8 +317,8 @@ export class CurveSampler {
           processInterval(p0, pm, depth + 1);
           processInterval(pm, p1, depth + 1);
         } else {
-          const cross0 = this.findBoundaryCrossingY(fn, camera, pm.type === 'inside' ? pm : p0, p0);
-          const cross1 = this.findBoundaryCrossingY(fn, camera, pm.type === 'inside' ? pm : p1, p1);
+          const cross0 = this.findCrossingY(fn, camera, pm.type === 'inside' ? pm.x : p0.x, p0.x, p0.type === 'above' ? -this.margin : h + this.margin);
+          const cross1 = this.findCrossingY(fn, camera, pm.type === 'inside' ? pm.x : p1.x, p1.x, p1.type === 'above' ? -this.margin : h + this.margin);
           startStroke(cross0);
           addPoint(cross1);
           flush();
@@ -306,7 +328,8 @@ export class CurveSampler {
 
       // 5. One inside, one above/below
       if (p0.type === 'inside' && (p1.type === 'above' || p1.type === 'below')) {
-        const crossing = this.findBoundaryCrossingY(fn, camera, p0, p1);
+        const targetSy = p1.type === 'above' ? -this.margin : h + this.margin;
+        const crossing = this.findCrossingY(fn, camera, p0.x, p1.x, targetSy);
         if (depth < this.maxDepth && Math.abs(p1.sx - p0.sx) > 1) {
           const xm = (p0.x + p1.x) * 0.5;
           const pm = this.evalSampleY(fn, camera, xm);
@@ -325,7 +348,8 @@ export class CurveSampler {
       }
 
       if ((p0.type === 'above' || p0.type === 'below') && p1.type === 'inside') {
-        const crossing = this.findBoundaryCrossingY(fn, camera, p1, p0);
+        const targetSy = p0.type === 'above' ? -this.margin : h + this.margin;
+        const crossing = this.findCrossingY(fn, camera, p1.x, p0.x, targetSy);
         if (depth < this.maxDepth && Math.abs(p1.sx - p0.sx) > 1) {
           const xm = (p0.x + p1.x) * 0.5;
           const pm = this.evalSampleY(fn, camera, xm);
@@ -340,29 +364,38 @@ export class CurveSampler {
         return;
       }
 
-      // 6. Both inside
-      let xm = (p0.x + p1.x) * 0.5;
-      let pm = this.evalSampleY(fn, camera, xm);
-
-      // Deep hidden pole detection between opposite-sign samples
-      if (pm.valid && pm.type === 'inside' && p0.y * p1.y < 0) {
+      // 6. Both inside: check for hidden pole across sign change
+      if (p0.y * p1.y < 0) {
         let l = p0.x, r = p1.x;
-        let yL = p0.y;
-        for (let i = 0; i < 50; i++) {
+        let yL = p0.y, yR = p1.y;
+        let isPole = false;
+
+        for (let i = 0; i < 45; i++) {
           const m = (l + r) * 0.5;
-          const s = this.evalSampleY(fn, camera, m);
-          if (!s.valid || s.type !== 'inside') {
-            pm = s;
+          const sm = this.evalSampleY(fn, camera, m);
+          if (!sm.valid || sm.type !== 'inside') {
+            isPole = true;
+          }
+          if (!sm.valid) {
             break;
           }
-          if (yL * s.y <= 0) {
-            r = m;
-          } else {
+          if (sm.y * yL > 0) {
             l = m;
-            yL = s.y;
+            yL = sm.y;
+          } else {
+            r = m;
+            yR = sm.y;
           }
         }
+
+        if (isPole) {
+          handlePoleCrossing(p0, p1, l, r, yL, yR);
+          return;
+        }
       }
+
+      let xm = (p0.x + p1.x) * 0.5;
+      let pm = this.evalSampleY(fn, camera, xm);
 
       if (!pm.valid || pm.type !== 'inside') {
         if (depth < this.maxDepth) {
@@ -443,6 +476,7 @@ export class CurveSampler {
   }
 
   private sampleXOfY(fn: CompiledFunction, camera: Camera2D): Point2D[][] {
+    const w = camera.screenWidth;
     const h = camera.screenHeight;
     const strokes: Point2D[][] = [];
     let currentStroke: Point2D[] = [];
@@ -456,7 +490,7 @@ export class CurveSampler {
 
     const clampPoint = (p: Point2D): Point2D => {
       const minX = -this.margin;
-      const maxX = camera.screenWidth + this.margin;
+      const maxX = w + this.margin;
       return {
         x: Math.max(minX, Math.min(maxX, p.x)),
         y: p.y
@@ -472,6 +506,32 @@ export class CurveSampler {
       currentStroke.push(clampPoint(p));
     };
 
+    const handlePoleCrossingX = (
+      p0: SampleX,
+      p1: SampleX,
+      l: number,
+      r: number,
+      xL: number,
+      xR: number
+    ) => {
+      if (p0.type === 'inside') {
+        const targetSxL = xL > 0 ? w + this.margin : -this.margin;
+        const crossL = this.findCrossingX(fn, camera, p0.y, l, targetSxL);
+        if (currentStroke.length === 0) {
+          startStroke({ x: p0.sx, y: p0.sy });
+        }
+        addPoint(crossL);
+      }
+      flush();
+
+      if (p1.type === 'inside') {
+        const targetSxR = xR > 0 ? w + this.margin : -this.margin;
+        const crossR = this.findCrossingX(fn, camera, p1.y, r, targetSxR);
+        startStroke(crossR);
+        addPoint({ x: p1.sx, y: p1.sy });
+      }
+    };
+
     const processInterval = (p0: SampleX, p1: SampleX, depth: number) => {
       // 1. Both invalid
       if (!p0.valid && !p1.valid) {
@@ -479,20 +539,55 @@ export class CurveSampler {
         return;
       }
 
-      // 2. One valid, one invalid -> finite domain boundary
+      // 2. One valid, one invalid -> finite domain boundary OR exact pole hit
       if (p0.valid && !p1.valid) {
+        let l = p0.y, r = p1.y;
+        let sL = p0;
+        for (let i = 0; i < 35; i++) {
+          const m = (l + r) * 0.5;
+          const sm = this.evalSampleX(fn, camera, m);
+          if (sm.valid) {
+            l = m;
+            sL = sm;
+          } else {
+            r = m;
+          }
+        }
         if (p0.type === 'inside') {
-          const b = this.findDomainBoundaryX(fn, camera, p0, p1);
-          addPoint(b);
+          if (sL.type !== 'inside') {
+            const targetSx = sL.x > 0 ? w + this.margin : -this.margin;
+            const cross = this.findCrossingX(fn, camera, p0.y, l, targetSx);
+            addPoint(cross);
+          } else {
+            addPoint({ x: sL.sx, y: sL.sy });
+          }
         }
         flush();
         return;
       }
+
       if (!p0.valid && p1.valid) {
         flush();
+        let l = p0.y, r = p1.y;
+        let sR = p1;
+        for (let i = 0; i < 35; i++) {
+          const m = (l + r) * 0.5;
+          const sm = this.evalSampleX(fn, camera, m);
+          if (sm.valid) {
+            r = m;
+            sR = sm;
+          } else {
+            l = m;
+          }
+        }
         if (p1.type === 'inside') {
-          const b = this.findDomainBoundaryX(fn, camera, p1, p0);
-          startStroke(b);
+          if (sR.type !== 'inside') {
+            const targetSx = sR.x > 0 ? w + this.margin : -this.margin;
+            const cross = this.findCrossingX(fn, camera, p1.y, r, targetSx);
+            startStroke(cross);
+          } else {
+            startStroke({ x: sR.sx, y: sR.sy });
+          }
           addPoint({ x: p1.sx, y: p1.sy });
         }
         return;
@@ -523,12 +618,7 @@ export class CurveSampler {
         const isAsymptote = !pm.valid || (Number.isFinite(dMid) && secantSlope * dMid < 0);
 
         if (isAsymptote) {
-          if (depth < this.maxDepth) {
-            processInterval(p0, pm, depth + 1);
-            processInterval(pm, p1, depth + 1);
-          } else {
-            flush();
-          }
+          flush();
           return;
         }
 
@@ -536,8 +626,8 @@ export class CurveSampler {
           processInterval(p0, pm, depth + 1);
           processInterval(pm, p1, depth + 1);
         } else {
-          const cross0 = this.findBoundaryCrossingX(fn, camera, pm.type === 'inside' ? pm : p0, p0);
-          const cross1 = this.findBoundaryCrossingX(fn, camera, pm.type === 'inside' ? pm : p1, p1);
+          const cross0 = this.findCrossingX(fn, camera, pm.type === 'inside' ? pm.y : p0.y, p0.y, p0.type === 'left' ? -this.margin : w + this.margin);
+          const cross1 = this.findCrossingX(fn, camera, pm.type === 'inside' ? pm.y : p1.y, p1.y, p1.type === 'left' ? -this.margin : w + this.margin);
           startStroke(cross0);
           addPoint(cross1);
           flush();
@@ -547,7 +637,8 @@ export class CurveSampler {
 
       // 5. One inside, one left/right
       if (p0.type === 'inside' && (p1.type === 'left' || p1.type === 'right')) {
-        const crossing = this.findBoundaryCrossingX(fn, camera, p0, p1);
+        const targetSx = p1.type === 'left' ? -this.margin : w + this.margin;
+        const crossing = this.findCrossingX(fn, camera, p0.y, p1.y, targetSx);
         if (depth < this.maxDepth && Math.abs(p1.sy - p0.sy) > 1) {
           const ym = (p0.y + p1.y) * 0.5;
           const pm = this.evalSampleX(fn, camera, ym);
@@ -566,7 +657,8 @@ export class CurveSampler {
       }
 
       if ((p0.type === 'left' || p0.type === 'right') && p1.type === 'inside') {
-        const crossing = this.findBoundaryCrossingX(fn, camera, p1, p0);
+        const targetSx = p0.type === 'left' ? -this.margin : w + this.margin;
+        const crossing = this.findCrossingX(fn, camera, p1.y, p0.y, targetSx);
         if (depth < this.maxDepth && Math.abs(p1.sy - p0.sy) > 1) {
           const ym = (p0.y + p1.y) * 0.5;
           const pm = this.evalSampleX(fn, camera, ym);
@@ -581,29 +673,38 @@ export class CurveSampler {
         return;
       }
 
-      // 6. Both inside
-      let ym = (p0.y + p1.y) * 0.5;
-      let pm = this.evalSampleX(fn, camera, ym);
-
-      // Deep hidden pole detection between opposite-sign samples
-      if (pm.valid && pm.type === 'inside' && p0.x * p1.x < 0) {
+      // 6. Both inside: check for hidden pole across sign change
+      if (p0.x * p1.x < 0) {
         let l = p0.y, r = p1.y;
-        let xL = p0.x;
-        for (let i = 0; i < 50; i++) {
+        let xL = p0.x, xR = p1.x;
+        let isPole = false;
+
+        for (let i = 0; i < 45; i++) {
           const m = (l + r) * 0.5;
-          const s = this.evalSampleX(fn, camera, m);
-          if (!s.valid || s.type !== 'inside') {
-            pm = s;
+          const sm = this.evalSampleX(fn, camera, m);
+          if (!sm.valid || sm.type !== 'inside') {
+            isPole = true;
+          }
+          if (!sm.valid) {
             break;
           }
-          if (xL * s.x <= 0) {
-            r = m;
-          } else {
+          if (sm.x * xL > 0) {
             l = m;
-            xL = s.x;
+            xL = sm.x;
+          } else {
+            r = m;
+            xR = sm.x;
           }
         }
+
+        if (isPole) {
+          handlePoleCrossingX(p0, p1, l, r, xL, xR);
+          return;
+        }
       }
+
+      let ym = (p0.y + p1.y) * 0.5;
+      let pm = this.evalSampleX(fn, camera, ym);
 
       if (!pm.valid || pm.type !== 'inside') {
         if (depth < this.maxDepth) {
