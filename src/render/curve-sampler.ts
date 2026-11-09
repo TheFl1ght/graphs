@@ -40,6 +40,7 @@ export class CurveSampler {
   private tolerancePx: number = 0.5;
   private maxDepth: number = 9;
   private coarseStepPx: number = 4;
+  private minPoleWidthPx: number = 0.25;
 
   private evalFn(fn: CompiledFunction, val: number): number {
     try {
@@ -51,13 +52,25 @@ export class CurveSampler {
   }
 
   private evalSampleY(fn: CompiledFunction, camera: Camera2D, x: number): SampleY {
-    const y = this.evalFn(fn, x);
-    const valid = Number.isFinite(y);
-    const sx = camera.worldToScreen(x, 0).x;
-    if (!valid) {
-      return { x, y: NaN, sx, sy: NaN, valid: false, type: 'invalid' };
+    let y = this.evalFn(fn, x);
+    let sampleX = x;
+    if (!Number.isFinite(y)) {
+      // Test if x is an isolated singularity (e.g. pole at exact integer or 0)
+      const dxCoarse = this.coarseStepPx / camera.zoom;
+      const eps = dxCoarse * 1e-4;
+      const yR = this.evalFn(fn, x + eps);
+      const yL = this.evalFn(fn, x - eps);
+      if (Number.isFinite(yR) && Number.isFinite(yL)) {
+        sampleX = x + eps;
+        y = yR;
+      }
     }
-    const sy = camera.worldToScreen(x, y).y;
+    const valid = Number.isFinite(y);
+    const sx = camera.worldToScreen(sampleX, 0).x;
+    if (!valid) {
+      return { x: sampleX, y: NaN, sx, sy: NaN, valid: false, type: 'invalid' };
+    }
+    const sy = camera.worldToScreen(sampleX, y).y;
     const h = camera.screenHeight;
     let type: 'inside' | 'above' | 'below';
     if (sy < -this.margin) {
@@ -67,17 +80,28 @@ export class CurveSampler {
     } else {
       type = 'inside';
     }
-    return { x, y, sx, sy, valid: true, type };
+    return { x: sampleX, y, sx, sy, valid: true, type };
   }
 
   private evalSampleX(fn: CompiledFunction, camera: Camera2D, y: number): SampleX {
-    const xVal = this.evalFn(fn, y);
-    const valid = Number.isFinite(xVal);
-    const sy = camera.worldToScreen(0, y).y;
-    if (!valid) {
-      return { y, x: NaN, sx: NaN, sy, valid: false, type: 'invalid' };
+    let xVal = this.evalFn(fn, y);
+    let sampleY = y;
+    if (!Number.isFinite(xVal)) {
+      const dyCoarse = this.coarseStepPx / camera.zoom;
+      const eps = dyCoarse * 1e-4;
+      const xR = this.evalFn(fn, y + eps);
+      const xL = this.evalFn(fn, y - eps);
+      if (Number.isFinite(xR) && Number.isFinite(xL)) {
+        sampleY = y + eps;
+        xVal = xR;
+      }
     }
-    const sx = camera.worldToScreen(xVal, y).x;
+    const valid = Number.isFinite(xVal);
+    const sy = camera.worldToScreen(0, sampleY).y;
+    if (!valid) {
+      return { y: sampleY, x: NaN, sx: NaN, sy, valid: false, type: 'invalid' };
+    }
+    const sx = camera.worldToScreen(xVal, sampleY).x;
     const w = camera.screenWidth;
     let type: 'inside' | 'left' | 'right';
     if (sx < -this.margin) {
@@ -87,7 +111,7 @@ export class CurveSampler {
     } else {
       type = 'inside';
     }
-    return { y, x: xVal, sx, sy, valid: true, type };
+    return { y: sampleY, x: xVal, sx, sy, valid: true, type };
   }
 
   private findCrossingY(
@@ -204,9 +228,30 @@ export class CurveSampler {
       yL: number,
       yR: number
     ) => {
+      const targetSyL = yL > 0 ? -this.margin : h + this.margin;
+      const targetSyR = yR > 0 ? -this.margin : h + this.margin;
+      const crossL = this.findCrossingY(fn, camera, p0.x, l, targetSyL);
+      const crossR = this.findCrossingY(fn, camera, p1.x, r, targetSyR);
+      const poleWidthPx = Math.abs(crossR.x - crossL.x);
+
+      if (poleWidthPx < this.minPoleWidthPx) {
+        // Sub-pixel pole: draw clean vertical asymptote line across screen and continue curve through
+        const sxPole = (crossL.x + crossR.x) * 0.5;
+        strokes.push([
+          { x: sxPole, y: -this.margin },
+          { x: sxPole, y: h + this.margin }
+        ]);
+        if (p0.type === 'inside') {
+          addPoint({ x: sxPole, y: p0.sy });
+        }
+        if (p1.type === 'inside') {
+          addPoint({ x: p1.sx, y: p1.sy });
+        }
+        return;
+      }
+
+      // Resolvable pole: separate left and right branches cleanly to margins
       if (p0.type === 'inside') {
-        const targetSyL = yL > 0 ? -this.margin : h + this.margin;
-        const crossL = this.findCrossingY(fn, camera, p0.x, l, targetSyL);
         if (currentStroke.length === 0) {
           startStroke({ x: p0.sx, y: p0.sy });
         }
@@ -215,8 +260,6 @@ export class CurveSampler {
       flush();
 
       if (p1.type === 'inside') {
-        const targetSyR = yR > 0 ? -this.margin : h + this.margin;
-        const crossR = this.findCrossingY(fn, camera, p1.x, r, targetSyR);
         startStroke(crossR);
         addPoint({ x: p1.sx, y: p1.sy });
       }
@@ -328,6 +371,30 @@ export class CurveSampler {
 
       // 5. One inside, one above/below
       if (p0.type === 'inside' && (p1.type === 'above' || p1.type === 'below')) {
+        // If opposite signs, there is a pole between them!
+        if (p0.y * p1.y < 0) {
+          let l = p0.x, r = p1.x;
+          let yL = p0.y, yR = p1.y;
+          let isPole = false;
+          for (let i = 0; i < 40; i++) {
+            const m = (l + r) * 0.5;
+            const sm = this.evalSampleY(fn, camera, m);
+            if (!sm.valid || sm.type !== 'inside') {
+              isPole = true;
+            }
+            if (!sm.valid) break;
+            if (sm.y * yL > 0) {
+              l = m; yL = sm.y;
+            } else {
+              r = m; yR = sm.y;
+            }
+          }
+          if (isPole) {
+            handlePoleCrossing(p0, p1, l, r, yL, yR);
+            return;
+          }
+        }
+
         const targetSy = p1.type === 'above' ? -this.margin : h + this.margin;
         const crossing = this.findCrossingY(fn, camera, p0.x, p1.x, targetSy);
         if (depth < this.maxDepth && Math.abs(p1.sx - p0.sx) > 1) {
@@ -348,6 +415,30 @@ export class CurveSampler {
       }
 
       if ((p0.type === 'above' || p0.type === 'below') && p1.type === 'inside') {
+        // If opposite signs, there is a pole between them!
+        if (p0.y * p1.y < 0) {
+          let l = p0.x, r = p1.x;
+          let yL = p0.y, yR = p1.y;
+          let isPole = false;
+          for (let i = 0; i < 40; i++) {
+            const m = (l + r) * 0.5;
+            const sm = this.evalSampleY(fn, camera, m);
+            if (!sm.valid || sm.type !== 'inside') {
+              isPole = true;
+            }
+            if (!sm.valid) break;
+            if (sm.y * yL > 0) {
+              l = m; yL = sm.y;
+            } else {
+              r = m; yR = sm.y;
+            }
+          }
+          if (isPole) {
+            handlePoleCrossing(p0, p1, l, r, yL, yR);
+            return;
+          }
+        }
+
         const targetSy = p0.type === 'above' ? -this.margin : h + this.margin;
         const crossing = this.findCrossingY(fn, camera, p1.x, p0.x, targetSy);
         if (depth < this.maxDepth && Math.abs(p1.sx - p0.sx) > 1) {
@@ -514,9 +605,30 @@ export class CurveSampler {
       xL: number,
       xR: number
     ) => {
+      const targetSxL = xL > 0 ? w + this.margin : -this.margin;
+      const targetSxR = xR > 0 ? w + this.margin : -this.margin;
+      const crossL = this.findCrossingX(fn, camera, p0.y, l, targetSxL);
+      const crossR = this.findCrossingX(fn, camera, p1.y, r, targetSxR);
+      const poleHeightPx = Math.abs(crossR.y - crossL.y);
+
+      if (poleHeightPx < this.minPoleWidthPx) {
+        // Sub-pixel pole: draw clean horizontal asymptote line across screen and continue curve through
+        const syPole = (crossL.y + crossR.y) * 0.5;
+        strokes.push([
+          { x: -this.margin, y: syPole },
+          { x: w + this.margin, y: syPole }
+        ]);
+        if (p0.type === 'inside') {
+          addPoint({ x: p0.sx, y: syPole });
+        }
+        if (p1.type === 'inside') {
+          addPoint({ x: p1.sx, y: p1.sy });
+        }
+        return;
+      }
+
+      // Resolvable pole: separate bottom and top branches cleanly to margins
       if (p0.type === 'inside') {
-        const targetSxL = xL > 0 ? w + this.margin : -this.margin;
-        const crossL = this.findCrossingX(fn, camera, p0.y, l, targetSxL);
         if (currentStroke.length === 0) {
           startStroke({ x: p0.sx, y: p0.sy });
         }
@@ -525,8 +637,6 @@ export class CurveSampler {
       flush();
 
       if (p1.type === 'inside') {
-        const targetSxR = xR > 0 ? w + this.margin : -this.margin;
-        const crossR = this.findCrossingX(fn, camera, p1.y, r, targetSxR);
         startStroke(crossR);
         addPoint({ x: p1.sx, y: p1.sy });
       }
@@ -637,6 +747,30 @@ export class CurveSampler {
 
       // 5. One inside, one left/right
       if (p0.type === 'inside' && (p1.type === 'left' || p1.type === 'right')) {
+        // If opposite signs, there is a pole between them!
+        if (p0.x * p1.x < 0) {
+          let l = p0.y, r = p1.y;
+          let xL = p0.x, xR = p1.x;
+          let isPole = false;
+          for (let i = 0; i < 40; i++) {
+            const m = (l + r) * 0.5;
+            const sm = this.evalSampleX(fn, camera, m);
+            if (!sm.valid || sm.type !== 'inside') {
+              isPole = true;
+            }
+            if (!sm.valid) break;
+            if (sm.x * xL > 0) {
+              l = m; xL = sm.x;
+            } else {
+              r = m; xR = sm.x;
+            }
+          }
+          if (isPole) {
+            handlePoleCrossingX(p0, p1, l, r, xL, xR);
+            return;
+          }
+        }
+
         const targetSx = p1.type === 'left' ? -this.margin : w + this.margin;
         const crossing = this.findCrossingX(fn, camera, p0.y, p1.y, targetSx);
         if (depth < this.maxDepth && Math.abs(p1.sy - p0.sy) > 1) {
@@ -657,6 +791,30 @@ export class CurveSampler {
       }
 
       if ((p0.type === 'left' || p0.type === 'right') && p1.type === 'inside') {
+        // If opposite signs, there is a pole between them!
+        if (p0.x * p1.x < 0) {
+          let l = p0.y, r = p1.y;
+          let xL = p0.x, xR = p1.x;
+          let isPole = false;
+          for (let i = 0; i < 40; i++) {
+            const m = (l + r) * 0.5;
+            const sm = this.evalSampleX(fn, camera, m);
+            if (!sm.valid || sm.type !== 'inside') {
+              isPole = true;
+            }
+            if (!sm.valid) break;
+            if (sm.x * xL > 0) {
+              l = m; xL = sm.x;
+            } else {
+              r = m; xR = sm.x;
+            }
+          }
+          if (isPole) {
+            handlePoleCrossingX(p0, p1, l, r, xL, xR);
+            return;
+          }
+        }
+
         const targetSx = p0.type === 'left' ? -this.margin : w + this.margin;
         const crossing = this.findCrossingX(fn, camera, p1.y, p0.y, targetSx);
         if (depth < this.maxDepth && Math.abs(p1.sy - p0.sy) > 1) {
