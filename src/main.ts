@@ -114,10 +114,67 @@ function getMatrixCellInfo(model: any) {
   return { arrayAtom, row, col, cellRootAtom: atom };
 }
 
+function getArrayAtomIndex(model: any, arrayAtom: any): number {
+  if (!model || !model.atoms) return 0;
+  const arrays = model.atoms.filter((a: any) => a.type === 'array');
+  const idx = arrays.indexOf(arrayAtom);
+  return idx >= 0 ? idx : 0;
+}
+
 function isCellEmptyOrPlaceholder(contentAtoms: any[]): boolean {
   if (contentAtoms.length === 0) return true;
   if (contentAtoms.length === 1 && contentAtoms[0].type === 'placeholder') return true;
   return false;
+}
+
+let isPlaceholderPatched = false;
+function patchMathLivePlaceholder(mf?: any) {
+  if (isPlaceholderPatched) return;
+  try {
+    let targetMf = mf;
+    let createdDummy = false;
+    if (!targetMf && typeof document !== 'undefined') {
+      targetMf = document.createElement('math-field') as any;
+      targetMf.style.position = 'fixed';
+      targetMf.style.top = '-9999px';
+      targetMf.style.opacity = '0';
+      document.body.appendChild(targetMf);
+      createdDummy = true;
+    }
+    if (targetMf) {
+      if (typeof targetMf.setValue === 'function') {
+        targetMf.setValue('\\placeholder{}');
+      }
+      const model = targetMf._mathfield?.model || targetMf.model;
+      const phAtom = model?.atoms?.find((a: any) => a.type === 'placeholder');
+      if (phAtom) {
+        const proto = Object.getPrototypeOf(phAtom);
+        if (proto && typeof proto.render === 'function' && !(proto as any)._patchedPlaceholder) {
+          (proto as any)._patchedPlaceholder = true;
+          const origRender = proto.render;
+          proto.render = function(context: any) {
+            const res = origRender.call(this, context);
+            if (res) {
+              if (typeof res.classes === 'string') {
+                if (!res.classes.includes('ML__placeholder')) {
+                  res.classes += ' ML__placeholder';
+                }
+              } else {
+                res.classes = 'ML__placeholder';
+              }
+              if (!res.attributes) res.attributes = {};
+              res.attributes['data-atom-type'] = 'placeholder';
+            }
+            return res;
+          };
+          isPlaceholderPatched = true;
+        }
+      }
+      if (createdDummy && targetMf.parentNode) {
+        targetMf.remove();
+      }
+    }
+  } catch (_) {}
 }
 
 function navigateToMatrixCell(
@@ -145,8 +202,9 @@ function navigateToMatrixCell(
   const contentAtoms = cellAtoms.filter((a: any) => a.type !== 'first');
   const isPlaceholder = isCellEmptyOrPlaceholder(contentAtoms);
 
+  const arrayIndex = getArrayAtomIndex(model, arrayAtom);
   if (typeof (mf as any)._setLastMatrixCell === 'function') {
-    (mf as any)._setLastMatrixCell(arrayAtom, targetRow, targetCol);
+    (mf as any)._setLastMatrixCell(arrayIndex, targetRow, targetCol);
   }
 
   if (isPlaceholder) {
@@ -169,13 +227,21 @@ function setupMathField(mf: any) {
   mf.smartMode = false;
   mf.placeholderSymbol = '0';
 
+  patchMathLivePlaceholder(mf);
+
   const injectPlaceholderStyle = () => {
     try {
       if (mf.shadowRoot && !mf.shadowRoot.querySelector('#mf-matrix-ph-style')) {
         const style = document.createElement('style');
         style.id = 'mf-matrix-ph-style';
         style.textContent = `
-          .ML__placeholder {
+          :host, .ML__container {
+            --placeholder-color: #94a3b8 !important;
+            --placeholder-opacity: 0.65 !important;
+            --_placeholder-color: #94a3b8 !important;
+            --_placeholder-opacity: 0.65 !important;
+          }
+          .ML__placeholder, [data-atom-type="placeholder"] {
             color: #94a3b8 !important;
             opacity: 0.65 !important;
             font-family: KaTeX_Main, 'Times New Roman', serif !important;
@@ -187,22 +253,28 @@ function setupMathField(mf: any) {
             background-color: transparent !important;
           }
           .ML__placeholder.ML__placeholder-selected,
+          [data-atom-type="placeholder"].ML__placeholder-selected,
           .ML__focused .ML__placeholder.ML__placeholder-selected,
+          .ML__focused [data-atom-type="placeholder"].ML__placeholder-selected,
           .ML__focused .ML__selected .ML__placeholder,
+          .ML__focused .ML__selected [data-atom-type="placeholder"],
           .ML__focused .ML__placeholder.ML__selected,
-          .ML__focused .ML__selected:has(.ML__placeholder),
+          .ML__focused [data-atom-type="placeholder"].ML__selected,
+          .ML__focused .ML__selected:has(.ML__placeholder, [data-atom-type="placeholder"]),
           .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) .ML__placeholder,
-          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder {
+          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) [data-atom-type="placeholder"],
+          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder,
+          .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) [data-atom-type="placeholder"] {
             background: transparent !important;
             background-color: transparent !important;
             color: transparent !important;
             opacity: 0 !important;
           }
-          .ML__focused:has(.ML__placeholder-selected) .ML__selection,
-          .ML__focused:has(.ML__placeholder.ML__selected) .ML__selection {
+          .ML__focused:has(.ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) .ML__selection,
+          .ML__focused:has(.ML__placeholder.ML__selected, [data-atom-type="placeholder"].ML__selected) .ML__selection {
             background: transparent !important;
           }
-          .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected) {
+          .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
             border-bottom: 2px solid #2d70b3 !important;
             margin-bottom: -2px !important;
             min-width: 0.7em !important;
@@ -225,11 +297,24 @@ function setupMathField(mf: any) {
   setTimeout(() => purgeLtGtShortcuts(mf), 0);
 
   // Matrix cell selection management
-  let lastMatrixCell: { array: any; row: number; col: number } | null = null;
+  let lastMatrixCell: { arrayIndex: number; row: number; col: number } | null = null;
   let isHandlingCellSelection = false;
+  let isUserEditing = false;
+  let editingTimer: any = null;
 
-  (mf as any)._setLastMatrixCell = (array: any, row: number, col: number) => {
-    lastMatrixCell = { array, row, col };
+  const markEditing = () => {
+    isUserEditing = true;
+    if (editingTimer) clearTimeout(editingTimer);
+    editingTimer = setTimeout(() => {
+      isUserEditing = false;
+    }, 150);
+  };
+
+  mf.addEventListener('beforeinput', markEditing);
+  mf.addEventListener('input', markEditing);
+
+  (mf as any)._setLastMatrixCell = (arrayIndex: number, row: number, col: number) => {
+    lastMatrixCell = { arrayIndex, row, col };
   };
 
   const handleMatrixCellSelection = () => {
@@ -243,15 +328,23 @@ function setupMathField(mf: any) {
       return;
     }
 
+    const arrayIndex = getArrayAtomIndex(model, cell.arrayAtom);
+
+    // If user is currently typing/editing in this mathfield, NEVER auto-select cell contents!
+    if (isUserEditing) {
+      lastMatrixCell = { arrayIndex, row: cell.row, col: cell.col };
+      return;
+    }
+
     const isDifferentCell = !lastMatrixCell ||
-      lastMatrixCell.array !== cell.arrayAtom ||
+      lastMatrixCell.arrayIndex !== arrayIndex ||
       lastMatrixCell.row !== cell.row ||
       lastMatrixCell.col !== cell.col;
 
     if (!isDifferentCell) return;
 
     lastMatrixCell = {
-      array: cell.arrayAtom,
+      arrayIndex,
       row: cell.row,
       col: cell.col
     };
@@ -266,10 +359,12 @@ function setupMathField(mf: any) {
     isHandlingCellSelection = true;
     try {
       if (isPlaceholder) {
+        // Empty cell: collapse selection so zero is not selected, showing empty field with blinking caret
         const phAtom = contentAtoms.find((a: any) => a.type === 'placeholder');
         const targetOffset = phAtom ? model.offsetOf(phAtom) : model.offsetOf(cellAtoms[cellAtoms.length - 1]);
         model.setSelection(targetOffset, targetOffset);
       } else {
+        // Filled cell: select all contents of the cell ONLY when navigating into it
         const startOffset = model.offsetOf(cellAtoms[0]);
         const endOffset = model.offsetOf(cellAtoms[cellAtoms.length - 1]);
         model.setSelection(startOffset, endOffset);
@@ -282,7 +377,7 @@ function setupMathField(mf: any) {
 
   mf.addEventListener('selection-change', handleMatrixCellSelection);
   mf.addEventListener('focus', () => { setTimeout(handleMatrixCellSelection, 0); });
-  mf.addEventListener('blur', () => { lastMatrixCell = null; });
+  mf.addEventListener('blur', () => { lastMatrixCell = null; isUserEditing = false; });
   mf.addEventListener('pointerup', () => { setTimeout(handleMatrixCellSelection, 0); });
 
   // Tab & Shift+Tab within matrix
@@ -335,12 +430,19 @@ if (typeof window !== 'undefined') {
           originalConnected?.call(this);
           this.placeholderSymbol = '0';
           purgeLtGtShortcuts(this);
+          patchMathLivePlaceholder(this);
           try {
             if (this.shadowRoot && !this.shadowRoot.querySelector('#mf-matrix-ph-style')) {
               const style = document.createElement('style');
               style.id = 'mf-matrix-ph-style';
               style.textContent = `
-                .ML__placeholder {
+                :host, .ML__container {
+                  --placeholder-color: #94a3b8 !important;
+                  --placeholder-opacity: 0.65 !important;
+                  --_placeholder-color: #94a3b8 !important;
+                  --_placeholder-opacity: 0.65 !important;
+                }
+                .ML__placeholder, [data-atom-type="placeholder"] {
                   color: #94a3b8 !important;
                   opacity: 0.65 !important;
                   font-family: KaTeX_Main, 'Times New Roman', serif !important;
@@ -352,22 +454,28 @@ if (typeof window !== 'undefined') {
                   background-color: transparent !important;
                 }
                 .ML__placeholder.ML__placeholder-selected,
+                [data-atom-type="placeholder"].ML__placeholder-selected,
                 .ML__focused .ML__placeholder.ML__placeholder-selected,
+                .ML__focused [data-atom-type="placeholder"].ML__placeholder-selected,
                 .ML__focused .ML__selected .ML__placeholder,
+                .ML__focused .ML__selected [data-atom-type="placeholder"],
                 .ML__focused .ML__placeholder.ML__selected,
-                .ML__focused .ML__selected:has(.ML__placeholder),
+                .ML__focused [data-atom-type="placeholder"].ML__selected,
+                .ML__focused .ML__selected:has(.ML__placeholder, [data-atom-type="placeholder"]),
                 .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) .ML__placeholder,
-                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder {
+                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__caret) [data-atom-type="placeholder"],
+                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) .ML__placeholder,
+                .ML__focused .ML__mtable span[style*="inline-block"]:has(.ML__placeholder-selected) [data-atom-type="placeholder"] {
                   background: transparent !important;
                   background-color: transparent !important;
                   color: transparent !important;
                   opacity: 0 !important;
                 }
-                .ML__focused:has(.ML__placeholder-selected) .ML__selection,
-                .ML__focused:has(.ML__placeholder.ML__selected) .ML__selection {
+                .ML__focused:has(.ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) .ML__selection,
+                .ML__focused:has(.ML__placeholder.ML__selected, [data-atom-type="placeholder"].ML__selected) .ML__selection {
                   background: transparent !important;
                 }
-                .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected) {
+                .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
                   border-bottom: 2px solid #2d70b3 !important;
                   margin-bottom: -2px !important;
                   min-width: 0.7em !important;
@@ -386,6 +494,7 @@ if (typeof window !== 'undefined') {
       dummy.style.opacity = '0';
       document.body.appendChild(dummy);
       purgeLtGtShortcuts(dummy);
+      patchMathLivePlaceholder(dummy);
       requestAnimationFrame(() => {
         purgeLtGtShortcuts(dummy);
         dummy.remove();
