@@ -110,3 +110,22 @@ export interface EquationNode {
   left: ASTNode;
   right: ASTNode;
 }
+
+export function isNumericConstantNode(node?: ASTNode): boolean {
+  if (!node) return false;
+  switch (node.type) {
+    case 'NumberLiteral':
+      return true;
+    case 'UnaryOp':
+      return (node.op === '+' || node.op === '-') && isNumericConstantNode(node.argument);
+    case 'BinaryOp':
+      if (['+', '-', '*', '/', '^'].includes(node.op)) {
+        return isNumericConstantNode(node.left) && isNumericConstantNode(node.right);
+      }
+      return false;
+    case 'Identifier':
+      return node.name === 'pi' || node.name === 'e';
+    default:
+      return false;
+  }
+}

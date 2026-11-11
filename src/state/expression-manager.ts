@@ -1,7 +1,7 @@
 import { Parser } from '../math/parser';
 import { Scope, isMatrix, is2DVector } from '../math/scope';
 import { JITCompiler, CompiledFunction } from '../math/compiler-jit';
-import { ASTNode } from '../math/ast';
+import { ASTNode, isNumericConstantNode } from '../math/ast';
 import { GraphItem, LineStyle } from '../render/graph-renderer';
 import { latexToMath } from '../math/latex-to-math';
 import { RegressionType, computeRegression } from '../math/regression';
@@ -822,21 +822,79 @@ export class ExpressionManager {
         const ast = Parser.parse(mathText);
         entry.ast = ast;
 
+        const hasMatrix = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}/.test(raw) || /\bmatrix\b/.test(raw) || /\bmatrix\b/.test(mathText);
+
         if (ast.type === 'VariableDecl') {
-          entry.type = 'variable';
           entry.varName = ast.name;
 
-          const isIntParam = ['n', 'N', 'k', 'K', 'm', 'M'].includes(ast.name);
-          entry.sliderMin = entry.sliderMin ?? (isIntParam ? 0 : -10);
-          entry.sliderMax = entry.sliderMax ?? 10;
-          entry.sliderStep = entry.sliderStep ?? (isIntParam ? 1 : 0.05);
+          if (hasMatrix) {
+            entry.type = 'matrix';
+            entry.value = undefined;
+            entry.sliderMin = undefined;
+            entry.sliderMax = undefined;
+            entry.sliderStep = undefined;
+            try {
+              const compiled = JITCompiler.compile(ast.value, [], this.scope);
+              const val = compiled();
+              this.scope.setConstant(ast.name, val);
+              if (isMatrix(val)) {
+                entry.matrixData = val;
+                if (is2DVector(val)) {
+                  entry.vector = { x: val[0][0], y: val[1][0] };
+                  entry.type = 'vector';
+                } else {
+                  entry.type = 'matrix';
+                }
+              }
+            } catch {
+              // Incomplete matrix or placeholder
+              entry.type = 'matrix';
+              entry.value = undefined;
+            }
+          } else if (isNumericConstantNode(ast.value)) {
+            entry.type = 'variable';
 
-          if (currentVarValues.has(ast.name)) {
-            const preserved = currentVarValues.get(ast.name)!;
-            this.scope.setConstant(ast.name, preserved);
-            entry.value = preserved;
+            const isIntParam = ['n', 'N', 'k', 'K', 'm', 'M'].includes(ast.name);
+            entry.sliderMin = entry.sliderMin ?? (isIntParam ? 0 : -10);
+            entry.sliderMax = entry.sliderMax ?? 10;
+            entry.sliderStep = entry.sliderStep ?? (isIntParam ? 1 : 0.05);
+
+            if (currentVarValues.has(ast.name)) {
+              const preserved = currentVarValues.get(ast.name)!;
+              this.scope.setConstant(ast.name, preserved);
+              entry.value = preserved;
+            } else {
+              // Attempt initial evaluation
+              try {
+                const compiled = JITCompiler.compile(ast.value, [], this.scope);
+                const val = compiled();
+                if (typeof val === 'number' && Number.isFinite(val)) {
+                  this.scope.setConstant(ast.name, val);
+                  entry.value = val;
+                } else {
+                  this.scope.setConstant(ast.name, 1);
+                  entry.value = 1;
+                }
+              } catch {
+                this.scope.setConstant(ast.name, 1);
+                entry.value = 1;
+              }
+            }
+
+            if (typeof entry.value === 'number') {
+              if (entry.value < entry.sliderMin) {
+                entry.sliderMin = Math.floor(entry.value - 5);
+              }
+              if (entry.value > entry.sliderMax) {
+                entry.sliderMax = Math.ceil(entry.value + 5);
+              }
+            }
           } else {
-            // Attempt initial evaluation
+            // Dependent/evaluated variable (e.g. a = b + 1 or a = sin(x)), not a slider constant
+            entry.type = 'variable';
+            entry.sliderMin = undefined;
+            entry.sliderMax = undefined;
+            entry.sliderStep = undefined;
             try {
               const compiled = JITCompiler.compile(ast.value, [], this.scope);
               const val = compiled();
@@ -853,18 +911,8 @@ export class ExpressionManager {
                 }
               }
             } catch {
-              // Might depend on other variables, will evaluate in pass 2
-              this.scope.setConstant(ast.name, 1);
-              entry.value = 1;
-            }
-          }
-
-          if (typeof entry.value === 'number') {
-            if (entry.value < entry.sliderMin) {
-              entry.sliderMin = Math.floor(entry.value - 5);
-            }
-            if (entry.value > entry.sliderMax) {
-              entry.sliderMax = Math.ceil(entry.value + 5);
+              // Depends on other variables, evaluate in pass 2
+              entry.value = undefined;
             }
           }
         } else if (ast.type === 'FunctionDecl') {
@@ -893,6 +941,32 @@ export class ExpressionManager {
       const ast = entry.ast;
       try {
         if (ast.type === 'VariableDecl') {
+          const rawEntry = entry.rawText || '';
+          const hasMat = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}/.test(rawEntry) || /\bmatrix\b/.test(rawEntry);
+          if (hasMat) {
+            entry.type = 'matrix';
+            entry.value = undefined;
+            entry.sliderMin = undefined;
+            entry.sliderMax = undefined;
+            entry.sliderStep = undefined;
+            try {
+              const compiled = JITCompiler.compile(ast.value, [], this.scope);
+              const val = compiled();
+              if (isMatrix(val)) {
+                this.scope.setConstant(ast.name, val);
+                entry.matrixData = val;
+                if (is2DVector(val)) {
+                  entry.vector = { x: val[0][0], y: val[1][0] };
+                  entry.type = 'vector';
+                } else {
+                  entry.vector = undefined;
+                  entry.type = 'matrix';
+                }
+              }
+            } catch {}
+            continue;
+          }
+
           // If value was not a slider constant, re-evaluate against full scope
           if (!currentVarValues.has(ast.name)) {
             const compiled = JITCompiler.compile(ast.value, [], this.scope);

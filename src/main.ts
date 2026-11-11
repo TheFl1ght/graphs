@@ -7,6 +7,7 @@ import { GraphRenderer, LineStyle } from './render/graph-renderer';
 import { ExpressionManager, ExpressionEntry, HistorySnapshot, TableRegression, findMatchingBaseColumn } from './state/expression-manager';
 import { RegressionType, formatNum } from './math/regression';
 import { Lexer } from './math/lexer';
+import { isNumericConstantNode } from './math/ast';
 
 const GREEK_SHORTCUTS = [
   'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon',
@@ -78,6 +79,20 @@ function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number
 
   const newBody = newRowsArr.join(' \\\\ ');
   return `${prefix}\\begin{${env}} ${newBody} \\end{${env}}${suffix}`;
+}
+
+function isScalarVariableEntry(entry: ExpressionEntry): entry is ExpressionEntry & { value: number; varName: string } {
+  if (entry.type !== 'variable' || !entry.varName || typeof entry.value !== 'number' || !Number.isFinite(entry.value)) {
+    return false;
+  }
+  const raw = entry.rawText || '';
+  if (/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}/.test(raw) || /\bmatrix\b/.test(raw) || entry.matrixData || entry.vector) {
+    return false;
+  }
+  if (entry.ast?.type === 'VariableDecl') {
+    return isNumericConstantNode(entry.ast.value);
+  }
+  return false;
 }
 
 function purgeLtGtShortcuts(mf: any) {
@@ -262,26 +277,29 @@ function setupMathField(mf: any) {
             --_placeholder-opacity: 0.65 !important;
           }
           .ML__mtable [class*="col-align-"] {
-            min-width: 1.8em !important;
+            min-width: 0.85em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable .ML__vlist-t {
-            min-width: 1.8em !important;
+            min-width: 0.85em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable .ML__vlist {
-            min-width: 1.8em !important;
+            min-width: 0.85em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
-            min-width: 1.5em !important;
+            min-width: 0.85em !important;
             text-align: center !important;
             box-sizing: border-box !important;
-            padding-left: 2px !important;
-            padding-right: 2px !important;
+            padding-left: 1px !important;
+            padding-right: 1px !important;
+          }
+          .ML__mtable .ML__arraycolsep {
+            width: 0.55em !important;
           }
           .ML__placeholder, [data-atom-type="placeholder"] {
             color: #94a3b8 !important;
@@ -289,12 +307,12 @@ function setupMathField(mf: any) {
             font-family: KaTeX_Main, 'Times New Roman', serif !important;
             font-style: normal !important;
             font-weight: normal !important;
-            padding-left: 2px !important;
-            padding-right: 2px !important;
+            padding-left: 1px !important;
+            padding-right: 1px !important;
             background: transparent !important;
             background-color: transparent !important;
             display: inline-block !important;
-            min-width: 1.5em !important;
+            min-width: 0.85em !important;
             text-align: center !important;
             box-sizing: border-box !important;
           }
@@ -333,10 +351,10 @@ function setupMathField(mf: any) {
           .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
             border-bottom: 2px solid #2d70b3 !important;
             margin-bottom: -2px !important;
-            min-width: 1.5em !important;
+            min-width: 0.85em !important;
             text-align: center !important;
-            padding-left: 2px !important;
-            padding-right: 2px !important;
+            padding-left: 1px !important;
+            padding-right: 1px !important;
             box-sizing: border-box !important;
           }
         `;
@@ -516,26 +534,29 @@ if (typeof window !== 'undefined') {
                   --_placeholder-opacity: 0.65 !important;
                 }
                 .ML__mtable [class*="col-align-"] {
-                  min-width: 1.8em !important;
+                  min-width: 0.85em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable .ML__vlist-t {
-                  min-width: 1.8em !important;
+                  min-width: 0.85em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable .ML__vlist {
-                  min-width: 1.8em !important;
+                  min-width: 0.85em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
-                  min-width: 1.5em !important;
+                  min-width: 0.85em !important;
                   text-align: center !important;
                   box-sizing: border-box !important;
-                  padding-left: 2px !important;
-                  padding-right: 2px !important;
+                  padding-left: 1px !important;
+                  padding-right: 1px !important;
+                }
+                .ML__mtable .ML__arraycolsep {
+                  width: 0.55em !important;
                 }
                 .ML__placeholder, [data-atom-type="placeholder"] {
                   color: #94a3b8 !important;
@@ -543,12 +564,12 @@ if (typeof window !== 'undefined') {
                   font-family: KaTeX_Main, 'Times New Roman', serif !important;
                   font-style: normal !important;
                   font-weight: normal !important;
-                  padding-left: 2px !important;
-                  padding-right: 2px !important;
+                  padding-left: 1px !important;
+                  padding-right: 1px !important;
                   background: transparent !important;
                   background-color: transparent !important;
                   display: inline-block !important;
-                  min-width: 1.5em !important;
+                  min-width: 0.85em !important;
                   text-align: center !important;
                   box-sizing: border-box !important;
                 }
@@ -587,10 +608,10 @@ if (typeof window !== 'undefined') {
                 .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
                   border-bottom: 2px solid #2d70b3 !important;
                   margin-bottom: -2px !important;
-                  min-width: 1.5em !important;
+                  min-width: 0.85em !important;
                   text-align: center !important;
-                  padding-left: 2px !important;
-                  padding-right: 2px !important;
+                  padding-left: 1px !important;
+                  padding-right: 1px !important;
                   box-sizing: border-box !important;
                 }
               `;
@@ -1237,8 +1258,10 @@ class App {
     mf.setValue(entry.rawText);
     setupMathField(mf);
 
-    if (entry.type === 'variable') {
+    if (isScalarVariableEntry(entry)) {
       itemEl.classList.add('is-variable');
+    } else {
+      itemEl.classList.remove('is-variable');
     }
 
     mf.addEventListener('focus', () => {
@@ -1315,7 +1338,7 @@ class App {
       }
       this.pushHistory(false);
 
-      if (entry.type === 'variable') {
+      if (isScalarVariableEntry(entry)) {
         itemEl.classList.add('is-variable');
       } else {
         itemEl.classList.remove('is-variable');
@@ -1837,15 +1860,7 @@ class App {
     for (const mat of matrixMatches) {
       let handle = mfContainer.querySelector(`.matrix-resize-container[data-matrix-index="${mat.index}"]`) as HTMLElement | null;
 
-      if (!mat.isIncomplete) {
-        // Matrix is filled completely to the end: remove handle if not dragging
-        if (handle && !handle.classList.contains('is-dragging')) {
-          handle.remove();
-        }
-        continue;
-      }
-
-      // Matrix is incomplete: ensure handle exists
+      // Ensure handle exists for this matrix
       if (!handle) {
         handle = document.createElement('div');
         handle.className = 'matrix-resize-container';
@@ -1893,23 +1908,14 @@ class App {
       const rightBracket = (mtable.nextElementSibling as HTMLElement | null) ||
                            (matrixBox?.lastElementChild as HTMLElement | null);
 
-      const dRect = rightBracket ? rightBracket.getBoundingClientRect() : null;
-      const mBoxRect = matrixBox ? matrixBox.getBoundingClientRect() : null;
+      const dRect = rightBracket && rightBracket.getBoundingClientRect().width > 0 ? rightBracket.getBoundingClientRect() : null;
       const tRect = mtable.getBoundingClientRect();
 
-      // Right edge: rightmost coordinate of the closing bracket or matrix container
-      const targetRight = Math.max(
-        dRect && dRect.width > 0 ? dRect.right : 0,
-        mBoxRect && mBoxRect.width > 0 ? mBoxRect.right : 0,
-        tRect.right + 14
-      );
+      // Right edge: rightmost coordinate of the closing bracket or table edge
+      const targetRight = dRect ? dRect.right : (tRect.right + 6);
 
-      // Bottom edge: bottommost coordinate of the bracket
-      const targetBottom = Math.max(
-        dRect && dRect.height > 0 ? dRect.bottom : 0,
-        mBoxRect && mBoxRect.height > 0 ? mBoxRect.bottom : 0,
-        tRect.bottom + 6
-      );
+      // Bottom edge: bottommost coordinate of the closing bracket or table edge
+      const targetBottom = dRect ? dRect.bottom : (tRect.bottom + 4);
 
       const left = targetRight - containerRect.left;
       const top = targetBottom - containerRect.top;
@@ -3826,7 +3832,7 @@ class App {
     }
 
     // 2. Slider for variable declarations (e.g. a = 2) with editable min, max, and step
-    if (entry.type === 'variable' && entry.varName && typeof entry.value === 'number') {
+    if (isScalarVariableEntry(entry)) {
       const sliderContainer = document.createElement('div');
       sliderContainer.className = 'slider-container';
 
@@ -4528,7 +4534,7 @@ class App {
     indexEl.textContent = (idx + 1).toString();
     gutterEl.appendChild(indexEl);
 
-    if (entry.type === 'variable') {
+    if (isScalarVariableEntry(entry)) {
       const playBtn = document.createElement('button');
       playBtn.className = 'slider-play-btn';
       playBtn.title = entry.isAnimating ? 'Пауза' : 'Анимация';
