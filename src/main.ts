@@ -34,14 +34,20 @@ function setupGreekShortcuts(dict: any) {
   dict['ceil'] = '\\lceil \\placeholder{} \\rceil';
 }
 
-function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number): string {
-  const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
+function resizeMatrixLatex(latex: string, targetRows: number, targetCols: number, matrixIndex: number = 0): string {
+  const regex = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/g;
+  let match: RegExpExecArray | null = null;
+  let cur = 0;
+  while ((match = regex.exec(latex)) !== null) {
+    if (cur === matrixIndex) break;
+    cur++;
+  }
   if (!match) return latex;
 
   const env = match[1];
   const body = match[2];
   const prefix = latex.substring(0, match.index);
-  const suffix = latex.substring(match.index! + match[0].length);
+  const suffix = latex.substring(match.index + match[0].length);
 
   // Parse existing cells
   const rawRows = body.split(/\\\\|\\cr/);
@@ -255,6 +261,28 @@ function setupMathField(mf: any) {
             --_placeholder-color: #94a3b8 !important;
             --_placeholder-opacity: 0.65 !important;
           }
+          .ML__mtable [class*="col-align-"] {
+            min-width: 1.8em !important;
+            box-sizing: border-box !important;
+            text-align: center !important;
+          }
+          .ML__mtable .ML__vlist-t {
+            min-width: 1.8em !important;
+            box-sizing: border-box !important;
+            text-align: center !important;
+          }
+          .ML__mtable .ML__vlist {
+            min-width: 1.8em !important;
+            box-sizing: border-box !important;
+            text-align: center !important;
+          }
+          .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
+            min-width: 1.5em !important;
+            text-align: center !important;
+            box-sizing: border-box !important;
+            padding-left: 2px !important;
+            padding-right: 2px !important;
+          }
           .ML__placeholder, [data-atom-type="placeholder"] {
             color: #94a3b8 !important;
             opacity: 0.65 !important;
@@ -265,6 +293,10 @@ function setupMathField(mf: any) {
             padding-right: 2px !important;
             background: transparent !important;
             background-color: transparent !important;
+            display: inline-block !important;
+            min-width: 1.5em !important;
+            text-align: center !important;
+            box-sizing: border-box !important;
           }
           .ML__placeholder.ML__placeholder-selected,
           [data-atom-type="placeholder"].ML__placeholder-selected,
@@ -301,10 +333,10 @@ function setupMathField(mf: any) {
           .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
             border-bottom: 2px solid #2d70b3 !important;
             margin-bottom: -2px !important;
-            min-width: 1.1em !important;
-            text-align: left !important;
-            padding-left: 3px !important;
-            padding-right: 3px !important;
+            min-width: 1.5em !important;
+            text-align: center !important;
+            padding-left: 2px !important;
+            padding-right: 2px !important;
             box-sizing: border-box !important;
           }
         `;
@@ -483,6 +515,28 @@ if (typeof window !== 'undefined') {
                   --_placeholder-color: #94a3b8 !important;
                   --_placeholder-opacity: 0.65 !important;
                 }
+                .ML__mtable [class*="col-align-"] {
+                  min-width: 1.8em !important;
+                  box-sizing: border-box !important;
+                  text-align: center !important;
+                }
+                .ML__mtable .ML__vlist-t {
+                  min-width: 1.8em !important;
+                  box-sizing: border-box !important;
+                  text-align: center !important;
+                }
+                .ML__mtable .ML__vlist {
+                  min-width: 1.8em !important;
+                  box-sizing: border-box !important;
+                  text-align: center !important;
+                }
+                .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
+                  min-width: 1.5em !important;
+                  text-align: center !important;
+                  box-sizing: border-box !important;
+                  padding-left: 2px !important;
+                  padding-right: 2px !important;
+                }
                 .ML__placeholder, [data-atom-type="placeholder"] {
                   color: #94a3b8 !important;
                   opacity: 0.65 !important;
@@ -493,6 +547,10 @@ if (typeof window !== 'undefined') {
                   padding-right: 2px !important;
                   background: transparent !important;
                   background-color: transparent !important;
+                  display: inline-block !important;
+                  min-width: 1.5em !important;
+                  text-align: center !important;
+                  box-sizing: border-box !important;
                 }
                 .ML__placeholder.ML__placeholder-selected,
                 [data-atom-type="placeholder"].ML__placeholder-selected,
@@ -529,10 +587,10 @@ if (typeof window !== 'undefined') {
                 .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
                   border-bottom: 2px solid #2d70b3 !important;
                   margin-bottom: -2px !important;
-                  min-width: 1.1em !important;
-                  text-align: left !important;
-                  padding-left: 3px !important;
-                  padding-right: 3px !important;
+                  min-width: 1.5em !important;
+                  text-align: center !important;
+                  padding-left: 2px !important;
+                  padding-right: 2px !important;
                   box-sizing: border-box !important;
                 }
               `;
@@ -1186,6 +1244,7 @@ class App {
     mf.addEventListener('focus', () => {
       document.querySelectorAll('.expression-item').forEach(el => el.classList.remove('focused'));
       itemEl.classList.add('focused');
+      this.updateMatrixResizeHandle(mfContainer, mf, entry);
     });
 
     mf.addEventListener('input', () => {
@@ -1291,6 +1350,7 @@ class App {
 
     mf.addEventListener('blur', () => {
       itemEl.classList.remove('focused');
+      this.updateMatrixResizeHandle(mfContainer, mf, entry);
       // If user typed plain parentheses around fraction, auto-upgrade to stretchy \left( \right)
       const current = mf.getValue();
       if (current.includes('\\frac') && current.includes('(') && !current.includes('\\left(')) {
@@ -1733,56 +1793,101 @@ class App {
     entry: ExpressionEntry
   ): void {
     const latex = mf.getValue();
-    const hasMatrix = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}/.test(latex);
-    let handle = mfContainer.querySelector('.matrix-resize-container') as HTMLElement | null;
+    const itemEl = mfContainer.closest('.expression-item');
+    const isFocused = itemEl?.classList.contains('focused') || document.activeElement === mf || mf.contains?.(document.activeElement);
+    const existingHandles = Array.from(mfContainer.querySelectorAll('.matrix-resize-container')) as HTMLElement[];
+    const isAnyDragging = existingHandles.some(h => h.classList.contains('is-dragging'));
 
-    if (!hasMatrix) {
-      if (handle) handle.remove();
-      return;
-    }
-
-    const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
-    let currentRows = 2;
-    let currentCols = 2;
-    if (match) {
-      const body = match[2];
+    const matrixRegex = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/g;
+    const matrixMatches: { index: number; env: string; body: string; rows: number; cols: number; isIncomplete: boolean }[] = [];
+    let mMatch: RegExpExecArray | null = null;
+    let matIdx = 0;
+    while ((mMatch = matrixRegex.exec(latex)) !== null) {
+      const env = mMatch[1];
+      const body = mMatch[2];
       const rawRows = body.split(/\\\\|\\cr/);
       const rows: string[][] = [];
       for (const r of rawRows) {
         if (r.trim() === '' && rows.length > 0) continue;
         rows.push(r.split('&').map((c: string) => c.trim()));
       }
-      currentRows = rows.length || 1;
-      currentCols = 1;
+      const currentRows = rows.length || 1;
+      let currentCols = 1;
+      let isIncomplete = rows.length === 0;
       for (const r of rows) {
         if (r.length > currentCols) currentCols = r.length;
+        for (const c of r) {
+          if (!c || c === '' || c.includes('\\placeholder')) {
+            isIncomplete = true;
+          }
+        }
+      }
+      matrixMatches.push({ index: matIdx, env, body, rows: currentRows, cols: currentCols, isIncomplete });
+      matIdx++;
+    }
+
+    if ((!isFocused && !isAnyDragging) || matrixMatches.length === 0) {
+      existingHandles.forEach(h => {
+        if (!h.classList.contains('is-dragging')) h.remove();
+      });
+      return;
+    }
+
+    // Process each matrix
+    for (const mat of matrixMatches) {
+      let handle = mfContainer.querySelector(`.matrix-resize-container[data-matrix-index="${mat.index}"]`) as HTMLElement | null;
+
+      if (!mat.isIncomplete) {
+        // Matrix is filled completely to the end: remove handle if not dragging
+        if (handle && !handle.classList.contains('is-dragging')) {
+          handle.remove();
+        }
+        continue;
+      }
+
+      // Matrix is incomplete: ensure handle exists
+      if (!handle) {
+        handle = document.createElement('div');
+        handle.className = 'matrix-resize-container';
+        handle.dataset.matrixIndex = String(mat.index);
+        handle.innerHTML = `
+          <div class="matrix-resize-dot" title="Потяните для изменения размера матрицы"></div>
+          <div class="matrix-resize-badge">${mat.rows} × ${mat.cols}</div>
+        `;
+        mfContainer.appendChild(handle);
+        this.setupMatrixDrag(handle, mfContainer, mf, entry, mat.index);
+      }
+
+      const badge = handle.querySelector('.matrix-resize-badge');
+      if (badge && !handle.classList.contains('is-dragging')) {
+        badge.textContent = `${mat.rows} × ${mat.cols}`;
       }
     }
 
-    if (!handle) {
-      handle = document.createElement('div');
-      handle.className = 'matrix-resize-container';
-      handle.innerHTML = `
-        <div class="matrix-resize-dot" title="Потяните для изменения размера матрицы"></div>
-        <div class="matrix-resize-badge">${currentRows} × ${currentCols}</div>
-      `;
-      mfContainer.appendChild(handle);
-      this.setupMatrixDrag(handle, mfContainer, mf, entry);
-    }
-
-    const badge = handle.querySelector('.matrix-resize-badge');
-    if (badge) badge.textContent = `${currentRows} × ${currentCols}`;
+    // Remove any handles for matrices that no longer exist (e.g. index >= matrixMatches.length)
+    existingHandles.forEach(h => {
+      const idx = parseInt(h.dataset.matrixIndex || '0', 10);
+      if (idx >= matrixMatches.length && !h.classList.contains('is-dragging')) {
+        h.remove();
+      }
+    });
 
     requestAnimationFrame(() => {
-      this.positionMatrixHandle(handle!, mfContainer, mf);
+      this.repositionHandlesForContainer(mfContainer, mf);
     });
   }
 
-  private positionMatrixHandle(handle: HTMLElement, mfContainer: HTMLElement, mf: any): void {
+  private positionMatrixHandle(
+    handle: HTMLElement,
+    mfContainer: HTMLElement,
+    mf: any,
+    matrixIndex: number = 0
+  ): void {
     const containerRect = mfContainer.getBoundingClientRect();
     if (containerRect.width === 0 && containerRect.height === 0) return;
 
-    const mtable = mf.shadowRoot?.querySelector('.ML__mtable') as HTMLElement | null;
+    const mtables = mf.shadowRoot?.querySelectorAll('.ML__mtable');
+    const mtable = mtables?.[matrixIndex] as HTMLElement | null;
     if (mtable) {
       const matrixBox = mtable.parentElement as HTMLElement | null;
       const rightBracket = (mtable.nextElementSibling as HTMLElement | null) ||
@@ -1819,14 +1924,22 @@ class App {
     }
   }
 
+  private repositionHandlesForContainer(mfContainer: HTMLElement, mf: any): void {
+    const handles = mfContainer.querySelectorAll('.matrix-resize-container');
+    handles.forEach(h => {
+      const handle = h as HTMLElement;
+      const idx = parseInt(handle.dataset.matrixIndex || '0', 10);
+      this.positionMatrixHandle(handle, mfContainer, mf, idx);
+    });
+  }
+
   private repositionAllMatrixHandles(): void {
-    const handles = document.querySelectorAll('.matrix-resize-container');
-    handles.forEach(handleEl => {
-      const handle = handleEl as HTMLElement;
-      const mfContainer = handle.closest('.math-field-container') as HTMLElement;
-      const mf = mfContainer?.querySelector('math-field') as any;
-      if (handle && mfContainer && mf) {
-        this.positionMatrixHandle(handle, mfContainer, mf);
+    const containers = document.querySelectorAll('.math-field-container');
+    containers.forEach(c => {
+      const mfContainer = c as HTMLElement;
+      const mf = mfContainer.querySelector('math-field') as any;
+      if (mf) {
+        this.repositionHandlesForContainer(mfContainer, mf);
       }
     });
   }
@@ -1835,7 +1948,8 @@ class App {
     handle: HTMLElement,
     mfContainer: HTMLElement,
     mf: any,
-    entry: ExpressionEntry
+    entry: ExpressionEntry,
+    matrixIndex: number
   ): void {
     const dot = handle.querySelector('.matrix-resize-dot') as HTMLElement;
     const badge = handle.querySelector('.matrix-resize-badge') as HTMLElement;
@@ -1850,8 +1964,15 @@ class App {
       const startX = e.clientX;
       const startY = e.clientY;
 
+      const currentIdx = parseInt(handle.dataset.matrixIndex || String(matrixIndex), 10);
       const latex = mf.getValue();
-      const match = latex.match(/\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/);
+      const regex = /\\begin\{(bmatrix|pmatrix|matrix|vmatrix)\}([\s\S]*?)\\end\{\1\}/g;
+      let match: RegExpExecArray | null = null;
+      let cur = 0;
+      while ((match = regex.exec(latex)) !== null) {
+        if (cur === currentIdx) break;
+        cur++;
+      }
       if (!match) return;
 
       const body = match[2];
@@ -1886,12 +2007,12 @@ class App {
           activeRows = newRows;
           activeCols = newCols;
 
-          const updatedLatex = resizeMatrixLatex(mf.getValue(), newRows, newCols);
+          const updatedLatex = resizeMatrixLatex(mf.getValue(), newRows, newCols, currentIdx);
           mf.setValue(updatedLatex);
           entry.rawText = updatedLatex;
           this.exprManager.updateExpression(entry.id, updatedLatex);
           requestAnimationFrame(() => {
-            this.positionMatrixHandle(handle, mfContainer, mf);
+            this.repositionHandlesForContainer(mfContainer, mf);
           });
         }
       };
@@ -1903,13 +2024,13 @@ class App {
         window.removeEventListener('pointerup', onPointerUp);
         window.removeEventListener('pointercancel', onPointerUp);
 
-        const finalLatex = resizeMatrixLatex(mf.getValue(), activeRows, activeCols);
+        const finalLatex = resizeMatrixLatex(mf.getValue(), activeRows, activeCols, currentIdx);
         mf.setValue(finalLatex);
         entry.rawText = finalLatex;
         this.exprManager.updateExpression(entry.id, finalLatex);
         this.pushHistory(false);
         requestAnimationFrame(() => {
-          this.positionMatrixHandle(handle, mfContainer, mf);
+          this.updateMatrixResizeHandle(mfContainer, mf, entry);
         });
       };
 
