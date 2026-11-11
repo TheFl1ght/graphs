@@ -784,6 +784,7 @@ body.resizing-sidebar {
 }
 
 .matrix-resize-badge {
+  display: none;
   margin-top: 4px;
   padding: 1px 6px;
   background-color: #e8f0fe;
@@ -797,6 +798,10 @@ body.resizing-sidebar {
   pointer-events: none;
   letter-spacing: 0.5px;
   opacity: 0.95;
+}
+
+.matrix-resize-container.is-dragging .matrix-resize-badge {
+  display: block;
 }
 
 .evaluation-matrix-pill .eval-matrix-box {

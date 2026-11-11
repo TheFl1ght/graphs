@@ -210,12 +210,26 @@ function navigateToMatrixCell(
   if (isPlaceholder) {
     const phAtom = contentAtoms.find((a: any) => a.type === 'placeholder');
     const targetOffset = phAtom ? model.offsetOf(phAtom) : model.offsetOf(cellAtoms[cellAtoms.length - 1]);
-    model.setSelection(targetOffset, targetOffset);
+    try {
+      mf.selection = { ranges: [[targetOffset, targetOffset]] };
+    } catch (_) {
+      model.setSelection(targetOffset, targetOffset);
+    }
   } else {
     const startOffset = model.offsetOf(cellAtoms[0]);
     const endOffset = model.offsetOf(cellAtoms[cellAtoms.length - 1]);
-    model.setSelection(startOffset, endOffset);
+    try {
+      mf.selection = { ranges: [[startOffset, endOffset]] };
+    } catch (_) {
+      model.setSelection(startOffset, endOffset);
+    }
   }
+  try {
+    (mf as any)._mathfield?.render?.();
+  } catch (_) {}
+  try {
+    (mf as any)._mathfield?.requestUpdate?.();
+  } catch (_) {}
   mf.focus?.();
   return true;
 }
@@ -269,6 +283,16 @@ function setupMathField(mf: any) {
             background-color: transparent !important;
             color: transparent !important;
             opacity: 0 !important;
+            display: inline-block !important;
+            width: 0 !important;
+            max-width: 0 !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-size: 0 !important;
+            line-height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
           }
           .ML__focused:has(.ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) .ML__selection,
           .ML__focused:has(.ML__placeholder.ML__selected, [data-atom-type="placeholder"].ML__selected) .ML__selection {
@@ -277,8 +301,11 @@ function setupMathField(mf: any) {
           .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
             border-bottom: 2px solid #2d70b3 !important;
             margin-bottom: -2px !important;
-            min-width: 0.7em !important;
-            text-align: center !important;
+            min-width: 1.1em !important;
+            text-align: left !important;
+            padding-left: 3px !important;
+            padding-right: 3px !important;
+            box-sizing: border-box !important;
           }
         `;
         mf.shadowRoot.appendChild(style);
@@ -362,13 +389,27 @@ function setupMathField(mf: any) {
         // Empty cell: collapse selection so zero is not selected, showing empty field with blinking caret
         const phAtom = contentAtoms.find((a: any) => a.type === 'placeholder');
         const targetOffset = phAtom ? model.offsetOf(phAtom) : model.offsetOf(cellAtoms[cellAtoms.length - 1]);
-        model.setSelection(targetOffset, targetOffset);
+        try {
+          mf.selection = { ranges: [[targetOffset, targetOffset]] };
+        } catch (_) {
+          model.setSelection(targetOffset, targetOffset);
+        }
       } else {
         // Filled cell: select all contents of the cell ONLY when navigating into it
         const startOffset = model.offsetOf(cellAtoms[0]);
         const endOffset = model.offsetOf(cellAtoms[cellAtoms.length - 1]);
-        model.setSelection(startOffset, endOffset);
+        try {
+          mf.selection = { ranges: [[startOffset, endOffset]] };
+        } catch (_) {
+          model.setSelection(startOffset, endOffset);
+        }
       }
+      try {
+        (mf as any)._mathfield?.render?.();
+      } catch (_) {}
+      try {
+        (mf as any)._mathfield?.requestUpdate?.();
+      } catch (_) {}
     } catch (_) {
     } finally {
       isHandlingCellSelection = false;
@@ -470,6 +511,16 @@ if (typeof window !== 'undefined') {
                   background-color: transparent !important;
                   color: transparent !important;
                   opacity: 0 !important;
+                  display: inline-block !important;
+                  width: 0 !important;
+                  max-width: 0 !important;
+                  min-width: 0 !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  font-size: 0 !important;
+                  line-height: 0 !important;
+                  overflow: hidden !important;
+                  pointer-events: none !important;
                 }
                 .ML__focused:has(.ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) .ML__selection,
                 .ML__focused:has(.ML__placeholder.ML__selected, [data-atom-type="placeholder"].ML__selected) .ML__selection {
@@ -478,8 +529,11 @@ if (typeof window !== 'undefined') {
                 .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
                   border-bottom: 2px solid #2d70b3 !important;
                   margin-bottom: -2px !important;
-                  min-width: 0.7em !important;
-                  text-align: center !important;
+                  min-width: 1.1em !important;
+                  text-align: left !important;
+                  padding-left: 3px !important;
+                  padding-right: 3px !important;
+                  box-sizing: border-box !important;
                 }
               `;
               this.shadowRoot.appendChild(style);
@@ -1270,6 +1324,50 @@ class App {
             navigateToMatrixCell(mf, matrixCell.row - 1, matrixCell.col);
             return;
           }
+        } else if (e.key === 'ArrowLeft' && !e.shiftKey) {
+          const cellAtoms = matrixCell.arrayAtom.getCell?.(matrixCell.row, matrixCell.col) ||
+            matrixCell.arrayAtom._rows?.[matrixCell.row]?.[matrixCell.col] || [];
+          const contentAtoms = cellAtoms.filter((a: any) => a.type !== 'first');
+          const isPh = isCellEmptyOrPlaceholder(contentAtoms);
+          const firstContentAtom = contentAtoms[0];
+          const atStart = isPh || (firstContentAtom && model.position <= model.offsetOf(firstContentAtom));
+          if (atStart) {
+            if (matrixCell.col > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, matrixCell.row, matrixCell.col - 1);
+              return;
+            } else if (matrixCell.row > 0) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, matrixCell.row - 1, matrixCell.arrayAtom.colCount - 1);
+              return;
+            }
+          }
+        } else if (e.key === 'ArrowRight' && !e.shiftKey) {
+          const cellAtoms = matrixCell.arrayAtom.getCell?.(matrixCell.row, matrixCell.col) ||
+            matrixCell.arrayAtom._rows?.[matrixCell.row]?.[matrixCell.col] || [];
+          const contentAtoms = cellAtoms.filter((a: any) => a.type !== 'first');
+          const isPh = isCellEmptyOrPlaceholder(contentAtoms);
+          const lastAtom = cellAtoms[cellAtoms.length - 1];
+          const atEnd = isPh || (lastAtom && model.position >= model.offsetOf(lastAtom));
+          if (atEnd) {
+            if (matrixCell.col < matrixCell.arrayAtom.colCount - 1) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, matrixCell.row, matrixCell.col + 1);
+              return;
+            } else if (matrixCell.row < matrixCell.arrayAtom.rowCount - 1) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              navigateToMatrixCell(mf, matrixCell.row + 1, 0);
+              return;
+            }
+          }
         } else if (e.key === 'Enter') {
           const rowCount = matrixCell.arrayAtom.rowCount;
           const colCount = matrixCell.arrayAtom.colCount;
@@ -1569,6 +1667,11 @@ class App {
 
       // 5. ArrowDown: switch to next row (expression or table)
       if (e.key === 'ArrowDown' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const model = (mf as any)._mathfield?.model || (mf as any).model;
+        const matrixCell = getMatrixCellInfo(model);
+        if (matrixCell && matrixCell.row < matrixCell.arrayAtom.rowCount - 1) {
+          return;
+        }
         const currIdx = this.exprManager.entries.findIndex(entryItem => entryItem.id === entry.id);
         if (currIdx !== -1 && currIdx < this.exprManager.entries.length - 1) {
           e.preventDefault();
@@ -1582,6 +1685,11 @@ class App {
 
       // 6. ArrowUp: switch to previous row (expression or table)
       if (e.key === 'ArrowUp' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const model = (mf as any)._mathfield?.model || (mf as any).model;
+        const matrixCell = getMatrixCellInfo(model);
+        if (matrixCell && matrixCell.row > 0) {
+          return;
+        }
         const currIdx = this.exprManager.entries.findIndex(entryItem => entryItem.id === entry.id);
         if (currIdx > 0) {
           e.preventDefault();
