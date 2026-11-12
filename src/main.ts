@@ -286,6 +286,10 @@ function setupMathField(mf: any) {
             --_placeholder-color: #94a3b8 !important;
             --_placeholder-opacity: 0.65 !important;
           }
+          .ML__mtable {
+            margin-left: -0.24em !important;
+            margin-right: 0.06em !important;
+          }
           .ML__mtable [class*="col-align-"] {
             min-width: 0.55em !important;
             box-sizing: border-box !important;
@@ -310,10 +314,6 @@ function setupMathField(mf: any) {
           }
           .ML__mtable .ML__arraycolsep {
             width: 0.45em !important;
-          }
-          .ML__mtable > .ML__arraycolsep:first-child {
-            display: inline-block !important;
-            width: 0.08em !important;
           }
           .ML__placeholder, [data-atom-type="placeholder"] {
             color: #94a3b8 !important;
@@ -547,6 +547,10 @@ if (typeof window !== 'undefined') {
                   --_placeholder-color: #94a3b8 !important;
                   --_placeholder-opacity: 0.65 !important;
                 }
+                .ML__mtable {
+                  margin-left: -0.24em !important;
+                  margin-right: 0.06em !important;
+                }
                 .ML__mtable [class*="col-align-"] {
                   min-width: 0.55em !important;
                   box-sizing: border-box !important;
@@ -571,10 +575,6 @@ if (typeof window !== 'undefined') {
                 }
                 .ML__mtable .ML__arraycolsep {
                   width: 0.45em !important;
-                }
-                .ML__mtable > .ML__arraycolsep:first-child {
-                  display: inline-block !important;
-                  width: 0.08em !important;
                 }
                 .ML__placeholder, [data-atom-type="placeholder"] {
                   color: #94a3b8 !important;
