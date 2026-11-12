@@ -95,24 +95,27 @@ function isScalarVariableEntry(entry: ExpressionEntry): entry is ExpressionEntry
   return false;
 }
 
+const KEYS_TO_DELETE = [
+  'AA', 'EE', '!EE', 'forall', 'exists', '!exists',
+  'lt', 'lt=', 'gt', 'gt='
+];
+
 function purgeLtGtShortcuts(mf: any) {
   try {
     const rawShortcuts = mf._mathfield?.options?.inlineShortcuts;
     if (rawShortcuts) {
-      delete rawShortcuts['lt'];
-      delete rawShortcuts['lt='];
-      delete rawShortcuts['gt'];
-      delete rawShortcuts['gt='];
+      for (const k of KEYS_TO_DELETE) {
+        delete rawShortcuts[k];
+      }
       setupGreekShortcuts(rawShortcuts);
     }
   } catch (_) {}
   try {
     const sc = mf.inlineShortcuts;
     if (sc && typeof sc === 'object') {
-      delete sc['lt'];
-      delete sc['lt='];
-      delete sc['gt'];
-      delete sc['gt='];
+      for (const k of KEYS_TO_DELETE) {
+        delete sc[k];
+      }
       setupGreekShortcuts(sc);
       mf.inlineShortcuts = sc;
     }
@@ -262,6 +265,13 @@ function setupMathField(mf: any) {
   mf.smartMode = false;
   mf.placeholderSymbol = '0';
 
+  const origShortcut = mf.onInlineShortcut;
+  mf.onInlineShortcut = (mathfield: any, s: string) => {
+    if (KEYS_TO_DELETE.includes(s)) return '';
+    if (typeof origShortcut === 'function') return origShortcut(mathfield, s);
+    return '';
+  };
+
   patchMathLivePlaceholder(mf);
 
   const injectPlaceholderStyle = () => {
@@ -277,29 +287,33 @@ function setupMathField(mf: any) {
             --_placeholder-opacity: 0.65 !important;
           }
           .ML__mtable [class*="col-align-"] {
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable .ML__vlist-t {
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable .ML__vlist {
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             box-sizing: border-box !important;
             text-align: center !important;
           }
           .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             text-align: center !important;
             box-sizing: border-box !important;
-            padding-left: 1px !important;
-            padding-right: 1px !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
           }
           .ML__mtable .ML__arraycolsep {
-            width: 0.55em !important;
+            width: 0.45em !important;
+          }
+          .ML__mtable > .ML__arraycolsep:first-child {
+            display: inline-block !important;
+            width: 0.08em !important;
           }
           .ML__placeholder, [data-atom-type="placeholder"] {
             color: #94a3b8 !important;
@@ -307,12 +321,12 @@ function setupMathField(mf: any) {
             font-family: KaTeX_Main, 'Times New Roman', serif !important;
             font-style: normal !important;
             font-weight: normal !important;
-            padding-left: 1px !important;
-            padding-right: 1px !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
             background: transparent !important;
             background-color: transparent !important;
             display: inline-block !important;
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             text-align: center !important;
             box-sizing: border-box !important;
           }
@@ -351,10 +365,10 @@ function setupMathField(mf: any) {
           .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
             border-bottom: 2px solid #2d70b3 !important;
             margin-bottom: -2px !important;
-            min-width: 0.85em !important;
+            min-width: 0.55em !important;
             text-align: center !important;
-            padding-left: 1px !important;
-            padding-right: 1px !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
             box-sizing: border-box !important;
           }
         `;
@@ -534,29 +548,33 @@ if (typeof window !== 'undefined') {
                   --_placeholder-opacity: 0.65 !important;
                 }
                 .ML__mtable [class*="col-align-"] {
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable .ML__vlist-t {
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable .ML__vlist {
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   box-sizing: border-box !important;
                   text-align: center !important;
                 }
                 .ML__mtable [class*="col-align-"] .ML__vlist > span > span {
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   text-align: center !important;
                   box-sizing: border-box !important;
-                  padding-left: 1px !important;
-                  padding-right: 1px !important;
+                  padding-left: 0 !important;
+                  padding-right: 0 !important;
                 }
                 .ML__mtable .ML__arraycolsep {
-                  width: 0.55em !important;
+                  width: 0.45em !important;
+                }
+                .ML__mtable > .ML__arraycolsep:first-child {
+                  display: inline-block !important;
+                  width: 0.08em !important;
                 }
                 .ML__placeholder, [data-atom-type="placeholder"] {
                   color: #94a3b8 !important;
@@ -564,12 +582,12 @@ if (typeof window !== 'undefined') {
                   font-family: KaTeX_Main, 'Times New Roman', serif !important;
                   font-style: normal !important;
                   font-weight: normal !important;
-                  padding-left: 1px !important;
-                  padding-right: 1px !important;
+                  padding-left: 0 !important;
+                  padding-right: 0 !important;
                   background: transparent !important;
                   background-color: transparent !important;
                   display: inline-block !important;
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   text-align: center !important;
                   box-sizing: border-box !important;
                 }
@@ -608,10 +626,10 @@ if (typeof window !== 'undefined') {
                 .ML__mtable span[style*="inline-block"]:has(.ML__caret, .ML__selected, .ML__placeholder-selected, [data-atom-type="placeholder"].ML__placeholder-selected) {
                   border-bottom: 2px solid #2d70b3 !important;
                   margin-bottom: -2px !important;
-                  min-width: 0.85em !important;
+                  min-width: 0.55em !important;
                   text-align: center !important;
-                  padding-left: 1px !important;
-                  padding-right: 1px !important;
+                  padding-left: 0 !important;
+                  padding-right: 0 !important;
                   box-sizing: border-box !important;
                 }
               `;
