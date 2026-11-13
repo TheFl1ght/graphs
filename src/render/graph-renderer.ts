@@ -41,7 +41,18 @@ export interface VectorGraphItem {
   layer?: number;
 }
 
-export type GraphItem = CurveGraphItem | PointsGraphItem | VectorGraphItem;
+export interface TrajectoryGraphItem {
+  type: 'trajectory';
+  id: string;
+  color: string;
+  points: { x: number; y: number; z?: number; t: number }[];
+  currentPoint?: { x: number; y: number };
+  projection?: 'xy' | 'xz' | 'yz';
+  visible: boolean;
+  layer?: number;
+}
+
+export type GraphItem = CurveGraphItem | PointsGraphItem | VectorGraphItem | TrajectoryGraphItem;
 
 export class GraphRenderer {
   private canvas: HTMLCanvasElement;
@@ -268,6 +279,55 @@ export class GraphRenderer {
           const textY = p1.y + (dy <= 0 ? -labelOffset : labelOffset + 10);
           ctx.fillText(item.label, textX, textY);
         }
+      } else if (item.type === 'trajectory') {
+        const pts = item.points;
+        if (pts.length < 2) continue;
+
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([]);
+
+        const proj = item.projection || 'xy';
+        const get2D = (p: { x: number; y: number; z?: number }) => {
+          if (proj === 'xz') return { x: p.x, y: p.z ?? 0 };
+          if (proj === 'yz') return { x: p.y, y: p.z ?? 0 };
+          return { x: p.x, y: p.y };
+        };
+
+        const total = pts.length;
+        ctx.beginPath();
+        const p0 = get2D(pts[0]);
+        const s0 = camera.worldToScreen(p0.x, p0.y);
+        ctx.moveTo(s0.x, s0.y);
+
+        for (let i = 1; i < total; i++) {
+          const p = get2D(pts[i]);
+          const s = camera.worldToScreen(p.x, p.y);
+          ctx.lineTo(s.x, s.y);
+        }
+        ctx.strokeStyle = item.color;
+        ctx.stroke();
+
+        // Draw active head point (glowing position dot)
+        const lastPt = pts[pts.length - 1];
+        const head2D = item.currentPoint || get2D(lastPt);
+        const sHead = camera.worldToScreen(head2D.x, head2D.y);
+
+        ctx.beginPath();
+        ctx.arc(sHead.x, sHead.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = item.color;
+        ctx.globalAlpha = 0.35;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        ctx.beginPath();
+        ctx.arc(sHead.x, sHead.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = item.color;
+        ctx.stroke();
       }
     }
 

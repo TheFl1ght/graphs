@@ -88,6 +88,29 @@ export function findMatchingBaseColumn(deltaColName: string, allCols: TableColum
   return null;
 }
 
+export interface SimulationData {
+  eqX: string;                 // dx/dt equation, e.g. "\sigma (y - x)"
+  eqY: string;                 // dy/dt equation, e.g. "x (\rho - z) - y"
+  eqZ?: string;                // dz/dt equation, e.g. "x y - \beta z"
+  hasZ: boolean;               // 2D or 3D system
+  x0: number;                  // initial condition x0
+  y0: number;                  // initial condition y0
+  z0: number;                  // initial condition z0
+  currentX: number;
+  currentY: number;
+  currentZ: number;
+  currentT: number;
+  dt: number;                  // integration step (e.g. 0.01)
+  stepsPerFrame: number;       // micro-steps per frame (e.g. 8)
+  maxTrailLength: number;      // max points in buffer (e.g. 2500)
+  isPlaying: boolean;          // running or paused
+  projection: 'xy' | 'xz' | 'yz';
+  pointsBuffer: { x: number; y: number; z?: number; t: number }[];
+  compiledFnX?: (x: number, y: number, z: number, t: number) => number;
+  compiledFnY?: (x: number, y: number, z: number, t: number) => number;
+  compiledFnZ?: (x: number, y: number, z: number, t: number) => number;
+}
+
 export interface ExpressionEntry {
   id: string;
   rawText: string;     // LaTeX or raw math input
@@ -96,8 +119,8 @@ export interface ExpressionEntry {
   visible?: boolean;
   lineStyle?: LineStyle;
   ast?: ASTNode;
-  kind: 'expression' | 'table';
-  type: 'variable' | 'function' | 'graph' | 'evaluation' | 'matrix' | 'vector' | 'invalid';
+  kind: 'expression' | 'table' | 'simulation';
+  type: 'variable' | 'function' | 'graph' | 'evaluation' | 'matrix' | 'vector' | 'simulation' | 'invalid';
   varName?: string;
   fnName?: string;
   value?: number;
@@ -113,6 +136,7 @@ export interface ExpressionEntry {
   animStepAccumulator?: number;
   layer?: number;
   compiledFn?: CompiledFunction;
+  simulationData?: SimulationData;
   tableColumns?: TableColumn[];
   tableRows?: string[][];
   regressions?: TableRegression[];
@@ -129,13 +153,14 @@ export interface HistorySnapshot {
     color: string;
     visible?: boolean;
     lineStyle?: LineStyle;
-    kind: 'expression' | 'table';
+    kind: 'expression' | 'table' | 'simulation';
     sliderMin?: number;
     sliderMax?: number;
     sliderStep?: number;
     animationMode?: 'oscillate' | 'loop' | 'once' | 'forward';
     animationSpeed?: number;
     layer?: number;
+    simulationData?: SimulationData;
     tableColumns?: TableColumn[];
     tableRows?: string[][];
     regressions?: TableRegression[];
@@ -221,6 +246,7 @@ export class ExpressionManager {
         animationMode: e.animationMode,
         animationSpeed: e.animationSpeed,
         layer: e.layer,
+        simulationData: e.simulationData ? JSON.parse(JSON.stringify(e.simulationData)) : undefined,
         tableColumns: e.tableColumns ? JSON.parse(JSON.stringify(e.tableColumns)) : undefined,
         tableRows: e.tableRows ? JSON.parse(JSON.stringify(e.tableRows)) : undefined,
         regressions: e.regressions ? JSON.parse(JSON.stringify(e.regressions.map(r => ({
@@ -257,13 +283,14 @@ export class ExpressionManager {
         visible: s.visible !== false,
         lineStyle: s.lineStyle || 'solid',
         kind: s.kind,
-        type: s.kind === 'table' ? 'graph' : 'invalid',
+        type: s.kind === 'table' ? 'graph' : s.kind === 'simulation' ? 'simulation' : 'invalid',
         sliderMin: s.sliderMin,
         sliderMax: s.sliderMax,
         sliderStep: s.sliderStep,
         animationMode: s.animationMode,
         animationSpeed: s.animationSpeed,
         layer: s.layer,
+        simulationData: s.simulationData ? JSON.parse(JSON.stringify(s.simulationData)) : undefined,
         tableColumns: s.tableColumns ? JSON.parse(JSON.stringify(s.tableColumns)) : undefined,
         tableRows: s.tableRows ? JSON.parse(JSON.stringify(s.tableRows)) : undefined,
         regressions: s.regressions ? JSON.parse(JSON.stringify(s.regressions)) : undefined,
@@ -770,6 +797,186 @@ export class ExpressionManager {
     this.recompileAll();
   }
 
+  public setVariableValueFast(name: string, value: number): void {
+    this.scope.setConstant(name, value);
+    for (const entry of this.entries) {
+      if (entry.type === 'variable' && entry.varName === name) {
+        entry.value = value;
+      }
+    }
+  }
+
+  public getActiveParameters(): Record<string, number> {
+    return this.scope.getParameters();
+  }
+
+  public setActiveParameters(params: Record<string, number>): void {
+    this.scope.setParameters(params);
+    for (const [k, v] of Object.entries(params)) {
+      for (const entry of this.entries) {
+        if (entry.type === 'variable' && entry.varName === k) {
+          entry.value = v;
+        }
+      }
+    }
+  }
+
+  public addSimulation(preset: 'lorenz' | 'vanderpol' | 'lotka' | 'custom' = 'lorenz'): ExpressionEntry {
+    const color = this.colorPalette[this.colorIdx % this.colorPalette.length];
+    this.colorIdx++;
+
+    let simData: SimulationData;
+    if (preset === 'lorenz') {
+      simData = {
+        eqX: '\\sigma (y - x)',
+        eqY: 'x (\\rho - z) - y',
+        eqZ: 'x y - \\beta z',
+        hasZ: true,
+        x0: 0.1,
+        y0: 0,
+        z0: 0,
+        currentX: 0.1,
+        currentY: 0,
+        currentZ: 0,
+        currentT: 0,
+        dt: 0.01,
+        stepsPerFrame: 8,
+        maxTrailLength: 3000,
+        isPlaying: true,
+        projection: 'xz',
+        pointsBuffer: [{ x: 0.1, y: 0, z: 0, t: 0 }]
+      };
+      if (!this.entries.some(e => e.type === 'variable' && (e.varName === '\\sigma' || e.varName === 'sigma'))) {
+        this.addExpression('\\sigma = 10');
+      }
+      if (!this.entries.some(e => e.type === 'variable' && (e.varName === '\\rho' || e.varName === 'rho'))) {
+        this.addExpression('\\rho = 28');
+      }
+      if (!this.entries.some(e => e.type === 'variable' && (e.varName === '\\beta' || e.varName === 'beta'))) {
+        this.addExpression('\\beta = 2.667');
+      }
+    } else if (preset === 'vanderpol') {
+      simData = {
+        eqX: 'y',
+        eqY: '\\mu (1 - x^2) y - x',
+        hasZ: false,
+        x0: 1,
+        y0: 0,
+        z0: 0,
+        currentX: 1,
+        currentY: 0,
+        currentZ: 0,
+        currentT: 0,
+        dt: 0.02,
+        stepsPerFrame: 5,
+        maxTrailLength: 2500,
+        isPlaying: true,
+        projection: 'xy',
+        pointsBuffer: [{ x: 1, y: 0, z: 0, t: 0 }]
+      };
+      if (!this.entries.some(e => e.type === 'variable' && (e.varName === '\\mu' || e.varName === 'mu'))) {
+        this.addExpression('\\mu = 1');
+      }
+    } else if (preset === 'lotka') {
+      simData = {
+        eqX: 'a x - b x y',
+        eqY: 'c x y - d y',
+        hasZ: false,
+        x0: 10,
+        y0: 5,
+        z0: 0,
+        currentX: 10,
+        currentY: 5,
+        currentZ: 0,
+        currentT: 0,
+        dt: 0.01,
+        stepsPerFrame: 6,
+        maxTrailLength: 2500,
+        isPlaying: true,
+        projection: 'xy',
+        pointsBuffer: [{ x: 10, y: 5, z: 0, t: 0 }]
+      };
+      if (!this.entries.some(e => e.type === 'variable' && e.varName === 'a')) this.addExpression('a = 1.1');
+      if (!this.entries.some(e => e.type === 'variable' && e.varName === 'b')) this.addExpression('b = 0.4');
+      if (!this.entries.some(e => e.type === 'variable' && e.varName === 'c')) this.addExpression('c = 0.1');
+      if (!this.entries.some(e => e.type === 'variable' && e.varName === 'd')) this.addExpression('d = 0.4');
+    } else {
+      simData = {
+        eqX: 'y',
+        eqY: '-x',
+        hasZ: false,
+        x0: 1,
+        y0: 0,
+        z0: 0,
+        currentX: 1,
+        currentY: 0,
+        currentZ: 0,
+        currentT: 0,
+        dt: 0.02,
+        stepsPerFrame: 5,
+        maxTrailLength: 2000,
+        isPlaying: true,
+        projection: 'xy',
+        pointsBuffer: [{ x: 1, y: 0, z: 0, t: 0 }]
+      };
+    }
+
+    const entry: ExpressionEntry = {
+      id: `sim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      rawText: '',
+      color,
+      visible: true,
+      kind: 'simulation',
+      type: 'simulation',
+      simulationData: simData
+    };
+
+    this.entries.push(entry);
+    this.recompileAll();
+    return entry;
+  }
+
+  public resetSimulation(id: string): void {
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry || !entry.simulationData) return;
+    const sim = entry.simulationData;
+    sim.currentX = sim.x0;
+    sim.currentY = sim.y0;
+    sim.currentZ = sim.hasZ ? sim.z0 : 0;
+    sim.currentT = 0;
+    sim.pointsBuffer = [{
+      x: sim.currentX,
+      y: sim.currentY,
+      z: sim.currentZ,
+      t: sim.currentT
+    }];
+    this.onUpdate?.();
+  }
+
+  public updateSimulationEquations(id: string, eqX: string, eqY: string, eqZ?: string): void {
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry || !entry.simulationData) return;
+    entry.simulationData.eqX = eqX;
+    entry.simulationData.eqY = eqY;
+    if (eqZ !== undefined) {
+      entry.simulationData.eqZ = eqZ;
+    }
+    this.compileSimulation(entry);
+    this.resetSimulation(id);
+    this.onUpdate?.();
+  }
+
+  public updateSimulationInitials(id: string, x0: number, y0: number, z0?: number): void {
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry || !entry.simulationData) return;
+    entry.simulationData.x0 = x0;
+    entry.simulationData.y0 = y0;
+    if (z0 !== undefined) {
+      entry.simulationData.z0 = z0;
+    }
+    this.resetSimulation(id);
+  }
+
   public removeExpression(id: string): void {
     this.entries = this.entries.filter(e => e.id !== id);
     this.recompileAll();
@@ -802,6 +1009,11 @@ export class ExpressionManager {
 
       if (entry.kind === 'table') {
         entry.type = 'graph';
+        continue;
+      }
+
+      if (entry.kind === 'simulation') {
+        entry.type = 'simulation';
         continue;
       }
 
@@ -936,7 +1148,12 @@ export class ExpressionManager {
 
     // --- PASS 2: Compile curves/equations and detect missing parameters against full scope ---
     for (const entry of this.entries) {
-      if (entry.kind === 'table' || !entry.ast) continue;
+      if (entry.kind === 'table') continue;
+      if (entry.kind === 'simulation') {
+        this.compileSimulation(entry);
+        continue;
+      }
+      if (!entry.ast) continue;
 
       const ast = entry.ast;
       try {
@@ -1078,8 +1295,44 @@ export class ExpressionManager {
     this.onUpdate?.();
   }
 
-  private detectMissingParams(entry: ExpressionEntry, node: ASTNode, boundParams: Set<string>): void {
+  public compileSimulation(entry: ExpressionEntry): void {
+    if (!entry.simulationData) return;
+    const sim = entry.simulationData;
+    entry.error = undefined;
     const missing = new Set<string>();
+    const boundParams = new Set(['x', 'y', 'z', 't']);
+
+    const compileComp = (latex: string) => {
+      const math = latexToMath(latex);
+      const ast = Parser.parse(math);
+      this.collectMissingParamsFromAST(ast, boundParams, missing);
+      return JITCompiler.compile(ast, ['x', 'y', 'z', 't'], this.scope) as (x: number, y: number, z: number, t: number) => number;
+    };
+
+    try {
+      if (sim.eqX) {
+        sim.compiledFnX = compileComp(sim.eqX);
+      }
+      if (sim.eqY) {
+        sim.compiledFnY = compileComp(sim.eqY);
+      }
+      if (sim.hasZ && sim.eqZ) {
+        sim.compiledFnZ = compileComp(sim.eqZ);
+      } else {
+        sim.compiledFnZ = undefined;
+      }
+
+      if (missing.size > 0) {
+        entry.missingParams = Array.from(missing);
+      } else {
+        entry.missingParams = undefined;
+      }
+    } catch (err: any) {
+      entry.error = err.message || 'Ошибка компиляции дифференциальных уравнений';
+    }
+  }
+
+  private collectMissingParamsFromAST(node: ASTNode, boundParams: Set<string>, missing: Set<string>): void {
     const knownFunctions = new Set([
       'sin', 'cos', 'tan', 'cot', 'atan', 'arctan', 'asin', 'acos', 'acot', 'arcsin', 'arccos', 'arccot',
       'sinh', 'cosh', 'tanh', 'sqrt', 'cbrt', 'abs', 'exp',
@@ -1160,6 +1413,11 @@ export class ExpressionManager {
     };
 
     walk(node);
+  }
+
+  private detectMissingParams(entry: ExpressionEntry, node: ASTNode, boundParams: Set<string>): void {
+    const missing = new Set<string>();
+    this.collectMissingParamsFromAST(node, boundParams, missing);
     if (missing.size > 0) {
       entry.missingParams = Array.from(missing);
     }
@@ -1312,6 +1570,30 @@ export class ExpressionManager {
               }
             }
           }
+        }
+      } else if (entry.kind === 'simulation' && entry.simulationData) {
+        const sim = entry.simulationData;
+        if (entry.visible !== false && sim.pointsBuffer && sim.pointsBuffer.length > 0) {
+          const proj = sim.projection || 'xy';
+          let headX = sim.currentX;
+          let headY = sim.currentY;
+          if (proj === 'xz') {
+            headY = sim.currentZ;
+          } else if (proj === 'yz') {
+            headX = sim.currentY;
+            headY = sim.currentZ;
+          }
+
+          items.push({
+            type: 'trajectory',
+            id: entry.id,
+            color: entry.color,
+            points: sim.pointsBuffer,
+            currentPoint: { x: headX, y: headY },
+            projection: proj,
+            visible: true,
+            layer: entry.layer ?? 2
+          });
         }
       } else if (entry.type === 'vector' && entry.vector) {
         items.push({

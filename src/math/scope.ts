@@ -325,6 +325,22 @@ export class Scope {
     return this.parent?.getConstant(name);
   }
 
+  public getParameters(): Record<string, number> {
+    const res: Record<string, number> = {};
+    for (const [k, v] of this.constants.entries()) {
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        res[k] = v;
+      }
+    }
+    return res;
+  }
+
+  public setParameters(params: Record<string, number>): void {
+    for (const [k, v] of Object.entries(params)) {
+      this.constants.set(k, v);
+    }
+  }
+
   public getFunction(name: string): MathFn | undefined {
     if (this.functions.has(name)) {
       return this.functions.get(name);

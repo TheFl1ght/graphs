@@ -2116,3 +2116,304 @@ body.dark-mode .desmos-header-mathfield {
   --selection-background-color: #1e3a5f !important;
   --selection-color: #93c5fd !important;
 }
+
+/* ==========================================================================
+   Dynamical Systems / Attractors (Simulation Item)
+   ========================================================================== */
+
+.simulation-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  box-sizing: border-box;
+}
+
+.sim-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.sim-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.sim-preset-select {
+  flex: 1;
+  max-width: 190px;
+  font-size: 0.8rem;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+}
+
+.sim-preset-select:hover {
+  border-color: #94a3b8;
+}
+
+.sim-equations-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.sim-eq-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-eq-label {
+  min-width: 52px;
+  font-family: "KaTeX_Main", "Times New Roman", serif;
+  font-size: 0.95rem;
+  color: #334155;
+  user-select: none;
+}
+
+.sim-eq-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 1.05rem;
+  padding: 2px 4px;
+  outline: none;
+}
+
+.sim-toggle-3d {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sim-link-btn {
+  background: none;
+  border: none;
+  font-size: 0.78rem;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 2px 4px;
+  text-decoration: underline;
+}
+
+.sim-link-btn:hover {
+  color: #1d4ed8;
+}
+
+.sim-initials-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.sim-sub-title {
+  font-weight: 600;
+}
+
+.sim-init-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.sim-init-label {
+  font-family: "KaTeX_Math", serif;
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.sim-init-input {
+  width: 45px;
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  color: #1e293b;
+  outline: none;
+}
+
+.sim-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.sim-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sim-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.sim-btn-play {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.sim-btn-play:hover {
+  background: #dbeafe;
+}
+
+.sim-proj-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.sim-proj-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  padding: 0 4px;
+}
+
+.sim-proj-btn {
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.sim-proj-btn.active {
+  background: #ffffff;
+  color: #1e293b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.sim-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.sim-setting-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sim-setting-label {
+  font-size: 0.78rem;
+}
+
+.sim-setting-input {
+  width: 58px;
+  padding: 2px 4px;
+  font-size: 0.78rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.sim-readout {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #64748b;
+  padding: 2px 2px;
+  user-select: none;
+}
+
+/* Dark mode simulation styles */
+body.dark-mode .sim-title {
+  color: #f1f5f9;
+}
+
+body.dark-mode .sim-preset-select {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+body.dark-mode .sim-equations-block {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+body.dark-mode .sim-eq-label {
+  color: #94a3b8;
+}
+
+body.dark-mode .sim-init-box {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+body.dark-mode .sim-init-input {
+  color: #f1f5f9;
+}
+
+body.dark-mode .sim-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+body.dark-mode .sim-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+body.dark-mode .sim-btn-play {
+  background: #1e3a5f;
+  border-color: #60a5fa;
+  color: #93c5fd;
+}
+
+body.dark-mode .sim-proj-group {
+  background: #1e293b;
+}
+
+body.dark-mode .sim-proj-btn.active {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+body.dark-mode .sim-setting-input {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}

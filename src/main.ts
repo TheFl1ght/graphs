@@ -8,6 +8,7 @@ import { ExpressionManager, ExpressionEntry, HistorySnapshot, TableRegression, f
 import { RegressionType, formatNum } from './math/regression';
 import { Lexer } from './math/lexer';
 import { isNumericConstantNode } from './math/ast';
+import { rk4Step } from './math/ode-solver';
 
 const GREEK_SHORTCUTS = [
   'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon',
@@ -1208,6 +1209,8 @@ class App {
       entry = this.exprManager.addExpression(`${v} = 2`);
     } else if (action === 'table') {
       entry = this.exprManager.addExpression('', 'table');
+    } else if (action === 'simulation') {
+      entry = this.exprManager.addSimulation('lorenz');
     } else if (action === 'matrix') {
       const usedVars = new Set(this.exprManager.entries.map(e => e.varName).filter(Boolean));
       const candidates = ['A', 'B', 'M', 'T', 'v', 'u', 'w'];
@@ -1248,6 +1251,8 @@ class App {
 
         if (entry.kind === 'table') {
           this.renderTableItem(contentEl, itemEl, entry);
+        } else if (entry.kind === 'simulation') {
+          this.renderSimulationItem(contentEl, itemEl, entry);
         } else {
           this.renderMathItem(contentEl, itemEl, entry);
         }
@@ -3252,6 +3257,357 @@ class App {
     contentEl.appendChild(rowEl);
   }
 
+  private renderSimulationItem(
+    contentEl: HTMLElement,
+    itemEl: HTMLElement,
+    entry: ExpressionEntry
+  ): void {
+    if (!entry.simulationData) return;
+    const sim = entry.simulationData;
+    itemEl.classList.add('is-simulation');
+
+    const container = document.createElement('div');
+    container.className = 'simulation-container';
+
+    // 1. Top Bar: Title, Preset selector, Delete button
+    const headerRow = document.createElement('div');
+    headerRow.className = 'sim-header-row';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'sim-title';
+    titleEl.textContent = 'Динамическая система';
+
+    const presetSelect = document.createElement('select');
+    presetSelect.className = 'sim-preset-select';
+    presetSelect.title = 'Выберите готовую систему или настройте свою';
+    presetSelect.innerHTML = `
+      <option value="" disabled selected>Шаблон системы...</option>
+      <option value="lorenz">Аттрактор Лоренца (3D)</option>
+      <option value="vanderpol">Осциллятор Ван дер Поля (2D)</option>
+      <option value="lotka">Модель Лотки-Вольтерры (2D)</option>
+      <option value="custom">Гармонический осциллятор (2D)</option>
+    `;
+    presetSelect.addEventListener('change', () => {
+      const val = presetSelect.value as any;
+      if (val) {
+        this.pushHistory(true);
+        const newSim = this.exprManager.addSimulation(val);
+        if (newSim.simulationData) {
+          entry.simulationData = JSON.parse(JSON.stringify(newSim.simulationData));
+          entry.color = newSim.color;
+        }
+        this.exprManager.entries = this.exprManager.entries.filter(e => e.id !== newSim.id);
+        this.exprManager.recompileAll();
+        this.renderExpressionList();
+      }
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-delete';
+    delBtn.innerHTML = '×';
+    delBtn.title = 'Удалить';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.pushHistory(true);
+      this.exprManager.removeExpression(entry.id);
+      if (this.exprManager.entries.length === 0) {
+        this.exprManager.addExpression('');
+      }
+      this.renderExpressionList();
+    });
+
+    headerRow.appendChild(titleEl);
+    headerRow.appendChild(presetSelect);
+    headerRow.appendChild(delBtn);
+    container.appendChild(headerRow);
+
+    // 2. Differential Equations Rows
+    const eqBlock = document.createElement('div');
+    eqBlock.className = 'sim-equations-block';
+
+    const createEqRow = (labelLatex: string, valueLatex: string, onUpdate: (val: string) => void) => {
+      const row = document.createElement('div');
+      row.className = 'sim-eq-row';
+
+      const label = document.createElement('div');
+      label.className = 'sim-eq-label';
+      label.innerHTML = `<math-field read-only>${labelLatex}</math-field>`;
+
+      const mf = document.createElement('math-field') as any;
+      mf.className = 'sim-eq-field';
+      mf.setValue(valueLatex);
+      setupMathField(mf);
+
+      mf.addEventListener('input', () => {
+        const val = mf.getValue();
+        onUpdate(val);
+        this.exprManager.compileSimulation(entry);
+        this.exprManager.resetSimulation(entry.id);
+        this.isDirty = true;
+      });
+
+      row.appendChild(label);
+      row.appendChild(mf);
+      return row;
+    };
+
+    // dx/dt
+    eqBlock.appendChild(
+      createEqRow('\\frac{dx}{dt} =', sim.eqX, (val) => {
+        sim.eqX = val;
+      })
+    );
+
+    // dy/dt
+    eqBlock.appendChild(
+      createEqRow('\\frac{dy}{dt} =', sim.eqY, (val) => {
+        sim.eqY = val;
+      })
+    );
+
+    // dz/dt (if 3D)
+    if (sim.hasZ) {
+      eqBlock.appendChild(
+        createEqRow('\\frac{dz}{dt} =', sim.eqZ || '0', (val) => {
+          sim.eqZ = val;
+        })
+      );
+    }
+
+    container.appendChild(eqBlock);
+
+    // Toggle 3D (dz/dt) button
+    const toggle3DLink = document.createElement('div');
+    toggle3DLink.className = 'sim-toggle-3d';
+    const toggle3DBtn = document.createElement('button');
+    toggle3DBtn.className = 'sim-link-btn';
+    toggle3DBtn.textContent = sim.hasZ ? '− Убрать dz/dt (2D)' : '+ Добавить dz/dt (3D система)';
+    toggle3DBtn.addEventListener('click', () => {
+      sim.hasZ = !sim.hasZ;
+      if (sim.hasZ && !sim.eqZ) {
+        sim.eqZ = 'x y - \\beta z';
+      }
+      this.exprManager.compileSimulation(entry);
+      this.exprManager.resetSimulation(entry.id);
+      this.renderExpressionList();
+    });
+    toggle3DLink.appendChild(toggle3DBtn);
+    container.appendChild(toggle3DLink);
+
+    // 3. Initial conditions row (x0, y0, z0)
+    const initRow = document.createElement('div');
+    initRow.className = 'sim-initials-row';
+    const initTitle = document.createElement('span');
+    initTitle.className = 'sim-sub-title';
+    initTitle.textContent = 'Старт:';
+    initRow.appendChild(initTitle);
+
+    const createInitInput = (name: string, val: number, onCommit: (v: number) => void) => {
+      const box = document.createElement('div');
+      box.className = 'sim-init-box';
+      const lbl = document.createElement('span');
+      lbl.className = 'sim-init-label';
+      lbl.textContent = `${name}=`;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'sim-init-input';
+      inp.step = '0.1';
+      inp.value = val.toString();
+      inp.addEventListener('change', () => {
+        const num = parseFloat(inp.value);
+        if (Number.isFinite(num)) {
+          onCommit(num);
+          this.exprManager.resetSimulation(entry.id);
+          this.isDirty = true;
+        }
+      });
+      box.appendChild(lbl);
+      box.appendChild(inp);
+      return box;
+    };
+
+    initRow.appendChild(
+      createInitInput('x₀', sim.x0, (v) => {
+        sim.x0 = v;
+      })
+    );
+    initRow.appendChild(
+      createInitInput('y₀', sim.y0, (v) => {
+        sim.y0 = v;
+      })
+    );
+    if (sim.hasZ) {
+      initRow.appendChild(
+        createInitInput('z₀', sim.z0, (v) => {
+          sim.z0 = v;
+        })
+      );
+    }
+    container.appendChild(initRow);
+
+    // 4. Controls toolbar (Play/Pause, Reset, Projection, Trail, dt)
+    const toolbar = document.createElement('div');
+    toolbar.className = 'sim-toolbar';
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'sim-btn sim-btn-play';
+    playBtn.title = sim.isPlaying ? 'Пауза' : 'Запуск симуляции';
+    playBtn.innerHTML = sim.isPlaying
+      ? `<svg viewBox="0 0 24 24" width="14" height="14" fill="#334155"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> <span>Пауза</span>`
+      : `<svg viewBox="0 0 24 24" width="14" height="14" fill="#334155"><path d="M8 5v14l11-7z"/></svg> <span>Старт</span>`;
+    playBtn.addEventListener('click', () => {
+      sim.isPlaying = !sim.isPlaying;
+      this.renderExpressionList();
+    });
+    toolbar.appendChild(playBtn);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'sim-btn sim-btn-reset';
+    resetBtn.title = 'Сброс в начальную точку';
+    resetBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 4v6h6M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+      </svg>
+      <span>Сброс</span>
+    `;
+    resetBtn.addEventListener('click', () => {
+      this.exprManager.resetSimulation(entry.id);
+      this.isDirty = true;
+      this.renderExpressionList();
+    });
+    toolbar.appendChild(resetBtn);
+
+    if (sim.hasZ) {
+      const projBox = document.createElement('div');
+      projBox.className = 'sim-proj-group';
+      const projLabel = document.createElement('span');
+      projLabel.className = 'sim-proj-label';
+      projLabel.textContent = 'Вид:';
+      projBox.appendChild(projLabel);
+
+      (['xy', 'xz', 'yz'] as const).forEach((proj) => {
+        const btn = document.createElement('button');
+        btn.className = `sim-proj-btn ${sim.projection === proj ? 'active' : ''}`;
+        btn.textContent = proj.toUpperCase();
+        btn.addEventListener('click', () => {
+          sim.projection = proj;
+          this.isDirty = true;
+          this.renderExpressionList();
+        });
+        projBox.appendChild(btn);
+      });
+      toolbar.appendChild(projBox);
+    }
+
+    container.appendChild(toolbar);
+
+    // 5. Settings row: Max trail length & dt
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'sim-settings-row';
+
+    const trailBox = document.createElement('div');
+    trailBox.className = 'sim-setting-item';
+    trailBox.innerHTML = `<span class="sim-setting-label">Хвост:</span>`;
+    const trailInp = document.createElement('input');
+    trailInp.type = 'number';
+    trailInp.className = 'sim-setting-input';
+    trailInp.min = '200';
+    trailInp.max = '10000';
+    trailInp.step = '500';
+    trailInp.value = (sim.maxTrailLength || 3000).toString();
+    trailInp.title = 'Максимальное количество точек в хвосте траектории';
+    trailInp.addEventListener('change', () => {
+      const num = parseInt(trailInp.value, 10);
+      if (Number.isFinite(num) && num >= 100) {
+        sim.maxTrailLength = num;
+      }
+    });
+    trailBox.appendChild(trailInp);
+    settingsRow.appendChild(trailBox);
+
+    const dtBox = document.createElement('div');
+    dtBox.className = 'sim-setting-item';
+    dtBox.innerHTML = `<span class="sim-setting-label">Шаг dt:</span>`;
+    const dtInp = document.createElement('input');
+    dtInp.type = 'number';
+    dtInp.className = 'sim-setting-input';
+    dtInp.min = '0.001';
+    dtInp.max = '0.1';
+    dtInp.step = '0.005';
+    dtInp.value = (sim.dt || 0.01).toString();
+    dtInp.title = 'Шаг численного интегрирования Рунге-Кутта (dt)';
+    dtInp.addEventListener('change', () => {
+      const num = parseFloat(dtInp.value);
+      if (Number.isFinite(num) && num > 0) {
+        sim.dt = num;
+      }
+    });
+    dtBox.appendChild(dtInp);
+    settingsRow.appendChild(dtBox);
+
+    container.appendChild(settingsRow);
+
+    // 6. Missing parameters prompt (e.g. sigma, rho, beta)
+    if (entry.missingParams && entry.missingParams.length > 0) {
+      const promptEl = document.createElement('div');
+      promptEl.className = 'slider-prompt';
+      const promptText = document.createElement('span');
+      promptText.className = 'slider-prompt-text';
+      promptText.textContent = '+ Добавить ползунок:';
+      promptEl.appendChild(promptText);
+
+      entry.missingParams.forEach((varName) => {
+        const btn = document.createElement('button');
+        btn.className = 'slider-prompt-btn';
+        const displayLatex = this.getLatexVariableName(varName);
+        btn.innerHTML = `<math-field read-only>${displayLatex}</math-field>`;
+        btn.addEventListener('click', () => {
+          this.pushHistory(true);
+          const currIdx = this.exprManager.entries.indexOf(entry);
+
+          let initialVal = 1;
+          if (varName === 'sigma' || varName === '\\sigma') initialVal = 10;
+          else if (varName === 'rho' || varName === '\\rho') initialVal = 28;
+          else if (varName === 'beta' || varName === '\\beta') initialVal = 2.667;
+          else if (varName === 'mu' || varName === '\\mu') initialVal = 1;
+
+          let rawDecl = `${varName} = ${initialVal}`;
+          if (GREEK_SHORTCUTS.includes(varName)) {
+            rawDecl = `\\${varName} = ${initialVal}`;
+          }
+
+          this.exprManager.addExpression(rawDecl);
+          const added = this.exprManager.entries.pop()!;
+          this.exprManager.entries.splice(currIdx + 1, 0, added);
+          this.exprManager.recompileAll();
+          this.renderExpressionList();
+        });
+        promptEl.appendChild(btn);
+      });
+      container.appendChild(promptEl);
+    }
+
+    // 7. Error message
+    if (entry.error && (!entry.missingParams || entry.missingParams.length === 0)) {
+      const errEl = document.createElement('div');
+      errEl.className = 'error-msg';
+      errEl.textContent = entry.error;
+      container.appendChild(errEl);
+    }
+
+    // 8. Live coordinates readout
+    const readout = document.createElement('div');
+    readout.className = 'sim-readout';
+    const tFixed = sim.currentT.toFixed(1);
+    const xFixed = sim.currentX.toFixed(2);
+    const yFixed = sim.currentY.toFixed(2);
+    const zFixed = sim.hasZ ? `, z=${sim.currentZ.toFixed(2)}` : '';
+    readout.textContent = `t = ${tFixed}s | (x=${xFixed}, y=${yFixed}${zFixed})`;
+    container.appendChild(readout);
+
+    contentEl.appendChild(container);
+  }
+
   private openTableColumnColorPicker(
     targetEl: HTMLElement,
     entry: ExpressionEntry,
@@ -4581,6 +4937,30 @@ class App {
         this.openAnimationPopover(settingsBtn, entry);
       });
       gutterEl.appendChild(settingsBtn);
+    } else if (entry.kind === 'simulation') {
+      const playBtn = document.createElement('button');
+      playBtn.className = 'slider-play-btn';
+      playBtn.title = entry.simulationData?.isPlaying ? 'Пауза' : 'Запуск';
+      playBtn.innerHTML = entry.simulationData?.isPlaying
+        ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+        : `<svg viewBox="0 0 24 24" width="13" height="13" fill="#475569"><path d="M8 5v14l11-7z"/></svg>`;
+
+      playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (entry.simulationData) {
+          entry.simulationData.isPlaying = !entry.simulationData.isPlaying;
+          this.renderExpressionList();
+        }
+      });
+      gutterEl.appendChild(playBtn);
+
+      const circleEl = document.createElement('div');
+      circleEl.className = 'color-circle';
+      const circleInner = document.createElement('div');
+      circleInner.className = 'color-circle-inner';
+      circleEl.appendChild(circleInner);
+      this.setupCircleEvents(circleEl, circleInner, entry);
+      gutterEl.appendChild(circleEl);
     } else {
       const circleEl = document.createElement('div');
       circleEl.className = 'color-circle';
@@ -4834,7 +5214,11 @@ class App {
       }
 
       let nextVal = min + nextStepIndex * step;
-      nextVal = Math.max(min, Math.min(max, nextVal));
+      if (mode === 'forward' && !Number.isFinite(max)) {
+        nextVal = currentVal + numSteps * step;
+      } else {
+        nextVal = Math.max(min, Math.min(max, nextVal));
+      }
 
       const stepDecimals = step.toString().includes('.') ? step.toString().split('.')[1].length : 0;
       const minDecimals = min.toString().includes('.') ? min.toString().split('.')[1].length : 0;
@@ -4842,7 +5226,7 @@ class App {
       const formattedVal = parseFloat(nextVal.toFixed(precision));
 
       entry.value = formattedVal;
-      this.exprManager.setVariableValue(entry.varName, formattedVal);
+      this.exprManager.setVariableValueFast(entry.varName, formattedVal);
       anyChanged = true;
 
       const itemEl = this.exprListEl.querySelector(`[data-id="${entry.id}"]`);
@@ -4865,6 +5249,80 @@ class App {
     }
   }
 
+  private updateSimulations(): void {
+    let anyChanged = false;
+
+    for (const entry of this.exprManager.entries) {
+      if (entry.kind !== 'simulation' || !entry.simulationData || !entry.simulationData.isPlaying) {
+        continue;
+      }
+      const sim = entry.simulationData;
+      if (!sim.compiledFnX || !sim.compiledFnY || (sim.hasZ && !sim.compiledFnZ)) {
+        continue;
+      }
+
+      const steps = sim.stepsPerFrame || 8;
+      const h = sim.dt || 0.01;
+
+      for (let s = 0; s < steps; s++) {
+        const next = rk4Step(
+          sim.compiledFnX,
+          sim.compiledFnY,
+          sim.hasZ ? sim.compiledFnZ : undefined,
+          sim.currentX,
+          sim.currentY,
+          sim.currentZ,
+          sim.currentT,
+          h
+        );
+
+        if (next.exploded) {
+          sim.isPlaying = false;
+          entry.error = 'Траектория расходится (diverged). Попробуйте уменьшить dt или начальные значения.';
+          this.renderExpressionList();
+          break;
+        }
+
+        sim.currentX = next.x;
+        sim.currentY = next.y;
+        sim.currentZ = next.z;
+        sim.currentT = next.t;
+
+        sim.pointsBuffer.push({
+          x: next.x,
+          y: next.y,
+          z: sim.hasZ ? next.z : undefined,
+          t: next.t
+        });
+      }
+
+      // Trim buffer to maxTrailLength
+      const maxPts = sim.maxTrailLength || 3000;
+      if (sim.pointsBuffer.length > maxPts) {
+        sim.pointsBuffer.splice(0, sim.pointsBuffer.length - maxPts);
+      }
+
+      anyChanged = true;
+
+      // Update readout if element is in DOM
+      const itemEl = this.exprListEl.querySelector(`[data-id="${entry.id}"]`);
+      if (itemEl) {
+        const readout = itemEl.querySelector('.sim-readout');
+        if (readout) {
+          const tFixed = sim.currentT.toFixed(1);
+          const xFixed = sim.currentX.toFixed(2);
+          const yFixed = sim.currentY.toFixed(2);
+          const zFixed = sim.hasZ ? `, z=${sim.currentZ.toFixed(2)}` : '';
+          readout.textContent = `t = ${tFixed}s | (x=${xFixed}, y=${yFixed}${zFixed})`;
+        }
+      }
+    }
+
+    if (anyChanged) {
+      this.isDirty = true;
+    }
+  }
+
   private lastAnimTime: number = 0;
   private startRenderLoop(): void {
     const loop = (currentTime: number) => {
@@ -4873,6 +5331,7 @@ class App {
       this.lastAnimTime = currentTime;
 
       this.updateSliderAnimations(dt);
+      this.updateSimulations();
 
       const moving = this.camera.updateInertia();
       if (moving || this.camera.isDragging || this.isDirty) {
